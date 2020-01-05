@@ -1,4 +1,4 @@
-module github.com/treydock/prometheus-alertmanager-responder
+module github.com/treydock/alertmanager-command-responder
 
 go 1.13
 
