@@ -1,0 +1,4 @@
+ssh_key: /var/lib/user/.ssh/id_rsa
+responders:
+  - host: localhost
+    command: uptime
