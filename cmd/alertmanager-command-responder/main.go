@@ -21,6 +21,7 @@ var (
   gitSha string
   buildTime string
   config Config
+  cfgPath string
 )
 
 type (
@@ -154,8 +155,20 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
   log.Printf("alert = %s", alertJson)
 }
 
+func readConfig() {
+		log.Printf("reading config: %s", cfgPath)
+    data, err := ioutil.ReadFile(cfgPath)
+	    if err != nil {
+		  log.Fatal(err)
+	  }
+	  if err := config.Parse(data); err != nil {
+		  log.Fatal(err)
+	  }
+    log.Printf("CONFIG: %+v\n", config)
+}
+
 func main() {
-    cfgPath := flag.String("cfg", "", "path to configuration file")
+    flag.StringVar(&cfgPath, "cfg", "", "path to configuration file")
     listenAddr := flag.String("listen", ":10000", "HTTP port to listen on")
     printVersion := flag.Bool("version", false, "if true, print version and exit")
 
@@ -166,18 +179,10 @@ func main() {
         os.Exit(0)
     }
 
-    if len(*cfgPath) == 0 {
+    if len(cfgPath) == 0 {
       log.Fatal("Must pass -cfg")
     }
-
-    data, err := ioutil.ReadFile(*cfgPath)
-	    if err != nil {
-		  log.Fatal(err)
-	  }
-	  if err := config.Parse(data); err != nil {
-		  log.Fatal(err)
-	  }
-	  fmt.Printf("%+v\n", config)
+    readConfig()
 
     s := &alertStore{
 		  capacity: 32,
