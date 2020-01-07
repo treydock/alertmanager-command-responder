@@ -10,6 +10,7 @@ import (
     "net/http"
     "os"
     "sync"
+    "time"
 
     "github.com/gorilla/mux"
     "gopkg.in/yaml.v2"
@@ -189,5 +190,13 @@ func main() {
     r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodGet)
     r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodPost)
     r.HandleFunc("/", notFound)
-    log.Fatal(http.ListenAndServe(*listenAddr, r))
+    srv := &http.Server{
+		  Handler:      r,
+		  Addr:         *listenAddr,
+		  ReadTimeout:  3 * time.Second,
+		  WriteTimeout: 3 * time.Second,
+	  }
+    if err := srv.ListenAndServe(); err != nil {
+			log.Fatal(err)
+		}
 }
