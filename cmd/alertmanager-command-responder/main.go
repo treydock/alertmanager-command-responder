@@ -9,7 +9,9 @@ import (
     "log"
     "net/http"
     "os"
+    "os/signal"
     "sync"
+	  "syscall"
     "time"
 
     "github.com/gorilla/mux"
@@ -188,6 +190,18 @@ func main() {
 		  capacity: 32,
 	  }
 
+    signal_chan := make(chan os.Signal, 1)
+	  signal.Notify(signal_chan, syscall.SIGHUP)
+    go func() {
+      for {
+			  s := <-signal_chan
+			  switch s {
+          case syscall.SIGHUP:
+            readConfig()
+        }
+      }
+    }()
+
     r := mux.NewRouter()
     r.HandleFunc("/healthz", healthzHandler).Methods(http.MethodGet)
     r.HandleFunc("/version", versionHandler).Methods(http.MethodGet)
@@ -202,6 +216,6 @@ func main() {
 		  WriteTimeout: 3 * time.Second,
 	  }
     if err := srv.ListenAndServe(); err != nil {
-			log.Fatal(err)
-		}
+	  	 log.Fatal(err)
+	  }
 }
