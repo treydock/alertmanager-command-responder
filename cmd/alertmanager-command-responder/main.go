@@ -191,13 +191,23 @@ func main() {
 	  }
 
     signal_chan := make(chan os.Signal, 1)
-	  signal.Notify(signal_chan, syscall.SIGHUP)
+	  signal.Notify(signal_chan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+    exit_chan := make(chan int)
     go func() {
       for {
 			  s := <-signal_chan
 			  switch s {
           case syscall.SIGHUP:
             readConfig()
+          case syscall.SIGINT:
+            exit_chan <- 0
+          case syscall.SIGTERM:
+            exit_chan <- 0
+          case syscall.SIGQUIT:
+            exit_chan <- 0
+          default:
+            log.Printf("Unknown signal %d", s)
+            exit_chan <- 1
         }
       }
     }()
@@ -215,7 +225,13 @@ func main() {
 		  ReadTimeout:  3 * time.Second,
 		  WriteTimeout: 3 * time.Second,
 	  }
-    if err := srv.ListenAndServe(); err != nil {
-	  	 log.Fatal(err)
-	  }
+    go func() {
+      if err := srv.ListenAndServe(); err != nil {
+	  	  log.Fatal(err)
+	    }
+    }()
+
+    code := <-exit_chan
+    log.Printf("Shutting down")
+    os.Exit(code)
 }
