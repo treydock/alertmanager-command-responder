@@ -36,6 +36,7 @@ type (
 	Config struct {
 		SSHKey     string      `yaml:"ssh_key" json:"ssh_key"`
 		Responders []Responder `yaml:"responders" json:"responders"`
+		path       string
 	}
 
 	Responder struct {
@@ -84,6 +85,19 @@ func (c *Config) Parse(data []byte) error {
 	//}
 	// ... same check for Username, SSHKey, and Port ...
 	return nil
+}
+
+func (c *Config) readConfig() {
+	log.Printf("reading config: %s", c.path)
+	data, err := ioutil.ReadFile(c.path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := c.Parse(data); err != nil {
+		log.Fatal(err)
+	}
+	cfgJson, _ := json.Marshal(c)
+	log.Printf("CONFIG: %s\n", cfgJson)
 }
 
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
@@ -157,18 +171,6 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("alert = %s", alertJson)
 }
 
-func readConfig() {
-	log.Printf("reading config: %s", cfgPath)
-	data, err := ioutil.ReadFile(cfgPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := config.Parse(data); err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("CONFIG: %+v\n", config)
-}
-
 func main() {
 	flag.StringVar(&cfgPath, "cfg", "", "path to configuration file")
 	listenAddr := flag.String("listen", ":10000", "HTTP port to listen on")
@@ -184,7 +186,11 @@ func main() {
 	if len(cfgPath) == 0 {
 		log.Fatal("Must pass -cfg")
 	}
-	readConfig()
+	config = Config{
+		path: cfgPath,
+	}
+
+	config.readConfig()
 
 	s := &alertStore{
 		capacity: 32,
@@ -198,7 +204,7 @@ func main() {
 			s := <-signal_chan
 			switch s {
 			case syscall.SIGHUP:
-				readConfig()
+				config.readConfig()
 			case syscall.SIGINT:
 				exit_chan <- 0
 			case syscall.SIGTERM:
