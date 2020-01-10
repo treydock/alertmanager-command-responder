@@ -16,16 +16,23 @@ import (
 
 	"github.com/gorilla/mux"
 	"gopkg.in/yaml.v2"
-
-	"github.com/treydock/alertmanager-command-responder/internal"
 )
 
 var (
-	config  Config
-	cfgPath string
+	gitTag    string
+	gitSha    string
+	buildTime string
+	config    Config
+	cfgPath   string
 )
 
 type (
+	Version struct {
+		GitTag    string `json:"version"`
+		GitSha    string `json:"sha1sum"`
+		BuildTime string `json:"buildtime"`
+	}
+
 	Config struct {
 		SSHKey     string      `yaml:"ssh_key" json:"ssh_key"`
 		Responders []Responder `yaml:"responders" json:"responders"`
@@ -62,6 +69,12 @@ type (
 	}
 )
 
+func versionJSON() []byte {
+	versionValue := Version{gitTag, gitSha, buildTime}
+	jsonValue, _ := json.Marshal(versionValue)
+	return jsonValue
+}
+
 func (c *Config) Parse(data []byte) error {
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return err
@@ -81,7 +94,7 @@ func healthzHandler(w http.ResponseWriter, r *http.Request) {
 func versionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(version.VersionJSON())
+	w.Write(versionJSON())
 }
 
 func configHandler(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +177,7 @@ func main() {
 	flag.Parse()
 
 	if *printVersion {
-		fmt.Printf("%s\n", version.VersionJSON())
+		fmt.Printf("%s\n", versionJSON())
 		os.Exit(0)
 	}
 
