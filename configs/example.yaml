@@ -5,3 +5,6 @@ responders:
   - match:
       - alertname: node_load1
     command: uptime
+  - match:
+      - alertname: http_down
+    command: systemctl restart apache2

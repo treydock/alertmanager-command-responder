@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"sync"
 	"syscall"
 	"time"
@@ -34,6 +35,7 @@ type (
 	}
 
 	Config struct {
+		User         string            `yaml:"user" json:"user"`
 		SSHKey       string            `yaml:"ssh_key" json:"ssh_key"`
 		HostLabel    string            `yaml:"host_label" json:"host_label"`
 		CommandLabel string            `yaml:"command_label" json:"command_label"`
@@ -44,6 +46,8 @@ type (
 	ConfigResponder struct {
 		Match   []map[string]string `yaml:"match" json:"match"`
 		Command string              `yaml:"command" json:"command"`
+		User    string              `yaml:"user" json:"user"`
+		SSHKey  string              `yaml:"ssh_key" json:"ssh_key"`
 	}
 
 	HookMessage struct {
@@ -83,7 +87,33 @@ func (c *Config) Parse(data []byte) error {
 	if err := yaml.Unmarshal(data, c); err != nil {
 		return err
 	}
-	//if c.Hostname == "" {
+	if c.User == "" {
+		u, err := user.Current()
+		if err != nil {
+			log.Printf("error getting user: %v", err)
+		}
+		c.User = u.Username
+	}
+	if c.SSHKey != "" {
+		_, err := os.Stat(c.SSHKey)
+		if os.IsNotExist(err) {
+			log.Fatalf("SSH key %s does not exist!", c.SSHKey)
+		}
+	}
+	for idx, r := range c.Responders {
+		if r.User == "" {
+			c.Responders[idx].User = c.User
+		}
+		if r.SSHKey == "" {
+			c.Responders[idx].SSHKey = c.SSHKey
+		}
+		if c.Responders[idx].SSHKey != "" {
+			_, err := os.Stat(c.Responders[idx].SSHKey)
+			if os.IsNotExist(err) {
+				log.Fatalf("SSH key %s does not exist!", c.Responders[idx].SSHKey)
+			}
+		}
+	}
 	//	return errors.New("Kitchen config: invalid `hostname`")
 	//}
 	// ... same check for Username, SSHKey, and Port ...
