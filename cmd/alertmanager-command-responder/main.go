@@ -78,6 +78,14 @@ type (
 	}
 )
 
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return !info.IsDir()
+}
+
 func versionJSON() []byte {
 	versionValue := Version{gitTag, gitSha, buildTime}
 	jsonValue, _ := json.Marshal(versionValue)
@@ -96,8 +104,7 @@ func (c *Config) Parse(data []byte) error {
 		c.User = u.Username
 	}
 	if c.SSHKey != "" {
-		_, err := os.Stat(c.SSHKey)
-		if os.IsNotExist(err) {
+		if !fileExists(c.SSHKey) {
 			log.Fatalf("SSH key %s does not exist!", c.SSHKey)
 		}
 	}
@@ -109,8 +116,7 @@ func (c *Config) Parse(data []byte) error {
 			c.Responders[idx].SSHKey = c.SSHKey
 		}
 		if c.Responders[idx].SSHKey != "" {
-			_, err := os.Stat(c.Responders[idx].SSHKey)
-			if os.IsNotExist(err) {
+			if !fileExists(c.Responders[idx].SSHKey) {
 				log.Fatalf("SSH key %s does not exist!", c.Responders[idx].SSHKey)
 			}
 		}
@@ -240,6 +246,10 @@ func (s *alertStore) saveState() error {
 
 func (s *alertStore) loadState() error {
 	if s.state == "" {
+		return nil
+	}
+	if !fileExists(s.state) {
+		log.Printf("State file %s does not exist", s.state)
 		return nil
 	}
 	s.Lock()
