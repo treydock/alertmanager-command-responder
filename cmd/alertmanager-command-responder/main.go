@@ -91,7 +91,7 @@ func (c *Config) Parse(data []byte) error {
 	if c.User == "" {
 		u, err := user.Current()
 		if err != nil {
-			log.Printf("error getting user: %v", err)
+			log.Println("error getting user:", err)
 		}
 		c.User = u.Username
 	}
@@ -122,7 +122,7 @@ func (c *Config) Parse(data []byte) error {
 }
 
 func (c *Config) readConfig() {
-	log.Printf("reading config: %s", c.path)
+	log.Println("reading config:", c.path)
 	data, err := ioutil.ReadFile(c.path)
 	if err != nil {
 		log.Fatal(err)
@@ -178,7 +178,7 @@ func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.Unlock()
 
 	if err := enc.Encode(s.Alerts); err != nil {
-		log.Printf("error encoding messages: %v", err)
+		log.Println("error encoding messages:", err)
 	}
 }
 
@@ -188,12 +188,13 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 
 	var m HookMessage
 	if err := dec.Decode(&m); err != nil {
-		log.Printf("error decoding message: %v", err)
+		log.Println("error decoding message:", err)
 		http.Error(w, "invalid request body", 400)
 		return
 	}
 
 	s.Lock()
+	defer s.Unlock()
 
 	s.Alerts = append(s.Alerts, &m)
 
@@ -202,9 +203,7 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 		_, a = a[0], a[1:]
 		s.Alerts = a
 	}
-	s.Unlock()
-	alertJson, _ := json.Marshal(m)
-	log.Printf("alert = %s", alertJson)
+	log.Printf("Received %s alerts\n", len(m.Alerts))
 	w.WriteHeader(http.StatusCreated)
 	io.WriteString(w, "created\n")
 }
@@ -221,18 +220,18 @@ func (s *alertStore) saveState() error {
 	if s.state == "" {
 		return nil
 	}
-	log.Printf("INFO: Saving state to %s", s.state)
+	log.Println("INFO: Saving state to", s.state)
 	s.Lock()
 	defer s.Unlock()
 	jsonData, err := json.MarshalIndent(s, "", " ")
 	if err != nil {
-		log.Printf("ERROR: generating state: %v", err)
+		log.Println("ERROR: generating state:", err)
 		return err
 	}
 	jsonFile, err := os.Create(s.state)
 	defer jsonFile.Close()
 	if err != nil {
-		log.Printf("ERROR: saving state to %s: %v", s.state, err)
+		log.Println("ERROR: saving state:", s.state, err)
 		return err
 	}
 	jsonFile.Write(jsonData)
@@ -245,16 +244,16 @@ func (s *alertStore) loadState() error {
 	}
 	s.Lock()
 	defer s.Unlock()
-	log.Printf("INFO Loading state from %s", s.state)
+	log.Println("INFO Loading state from", s.state)
 	jsonFile, err := os.Open(s.state)
 	if err != nil {
-		log.Printf("ERROR: loading state from %s: %v", s.state, err)
+		log.Println("ERROR: loading state:", s.state, err)
 		return err
 	}
 	defer jsonFile.Close()
 	err = json.NewDecoder(jsonFile).Decode(&s)
 	if err != nil {
-		log.Printf("ERROR: Parsing JSON state: %v", err)
+		log.Println("ERROR: Parsing JSON state:", err)
 		return err
 	}
 	return nil
@@ -275,7 +274,7 @@ func main() {
 	flag.Parse()
 
 	if *printVersion {
-		fmt.Printf("%s\n", versionJSON())
+		fmt.Println(versionJSON())
 		os.Exit(0)
 	}
 
@@ -299,8 +298,8 @@ func main() {
 	stop := make(chan bool)
 	go func() {
 		for {
-			s := <-signal_chan
-			switch s {
+			sig := <-signal_chan
+			switch sig {
 			case syscall.SIGHUP:
 				config.readConfig()
 				s.saveState()
@@ -314,7 +313,7 @@ func main() {
 				stop <- true
 				exit_chan <- 0
 			default:
-				log.Printf("Unknown signal %d", s)
+				log.Println("Unknown signal", sig)
 				stop <- true
 				exit_chan <- 1
 			}
@@ -346,7 +345,7 @@ func main() {
 		for {
 			select {
 			case <-stop:
-				log.Printf("Shutting down ticker")
+				log.Println("Shutting down ticker")
 				return
 			case t := <-ticker.C:
 				fmt.Println("Processing alert store at", t)
@@ -356,7 +355,7 @@ func main() {
 	}()
 
 	code := <-exit_chan
-	log.Printf("Shutting down")
+	log.Println("Shutting down")
 	s.saveState()
 	ticker.Stop()
 	os.Exit(code)
