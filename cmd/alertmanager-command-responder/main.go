@@ -72,8 +72,9 @@ type (
 
 	alertStore struct {
 		sync.Mutex
-		capacity int
-		alerts   []*HookMessage
+		capacity int            `json:"alerts"`
+		state    string         `json:"state"`
+		Alerts   []*HookMessage `json:"alerts"`
 	}
 )
 
@@ -176,7 +177,7 @@ func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
 	s.Lock()
 	defer s.Unlock()
 
-	if err := enc.Encode(s.alerts); err != nil {
+	if err := enc.Encode(s.Alerts); err != nil {
 		log.Printf("error encoding messages: %v", err)
 	}
 }
@@ -194,31 +195,83 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 
 	s.Lock()
 
-	s.alerts = append(s.alerts, &m)
+	s.Alerts = append(s.Alerts, &m)
 
-	if len(s.alerts) > s.capacity {
-		a := s.alerts
+	if len(s.Alerts) > s.capacity {
+		a := s.Alerts
 		_, a = a[0], a[1:]
-		s.alerts = a
+		s.Alerts = a
 	}
 	s.Unlock()
 	alertJson, _ := json.Marshal(m)
 	log.Printf("alert = %s", alertJson)
+	w.WriteHeader(http.StatusCreated)
+	io.WriteString(w, "created\n")
 }
 
 func (s *alertStore) deleteHandler(w http.ResponseWriter, r *http.Request) {
 	s.Lock()
-	s.alerts = nil
+	s.Alerts = nil
 	s.Unlock()
 	w.WriteHeader(http.StatusAccepted)
 	io.WriteString(w, "deleted\n")
 }
 
+func (s *alertStore) saveState() error {
+	if s.state == "" {
+		return nil
+	}
+	log.Printf("INFO: Saving state to %s", s.state)
+	s.Lock()
+	defer s.Unlock()
+	jsonData, err := json.MarshalIndent(s, "", " ")
+	if err != nil {
+		log.Printf("ERROR: generating state: %v", err)
+		return err
+	}
+	jsonFile, err := os.Create(s.state)
+	defer jsonFile.Close()
+	if err != nil {
+		log.Printf("ERROR: saving state to %s: %v", s.state, err)
+		return err
+	}
+	jsonFile.Write(jsonData)
+	return nil
+}
+
+func (s *alertStore) loadState() error {
+	if s.state == "" {
+		return nil
+	}
+	s.Lock()
+	defer s.Unlock()
+	log.Printf("INFO Loading state from %s", s.state)
+	jsonFile, err := os.Open(s.state)
+	if err != nil {
+		log.Printf("ERROR: loading state from %s: %v", s.state, err)
+		return err
+	}
+	defer jsonFile.Close()
+	err = json.NewDecoder(jsonFile).Decode(&s)
+	if err != nil {
+		log.Printf("ERROR: Parsing JSON state: %v", err)
+		return err
+	}
+	return nil
+}
+
+func (s *alertStore) processAlerts() error {
+	fmt.Printf("Processing %d alerts\n", len(s.Alerts))
+
+	return nil
+}
+
 func main() {
 	flag.StringVar(&cfgPath, "cfg", "", "path to configuration file")
 	listenAddr := flag.String("listen", ":10000", "HTTP port to listen on")
+	interval := flag.Int("interval", 60, "Interval in seconds to operate on received alerts")
+	state := flag.String("state", "", "Path to saved state file")
 	printVersion := flag.Bool("version", false, "if true, print version and exit")
-
 	flag.Parse()
 
 	if *printVersion {
@@ -232,30 +285,37 @@ func main() {
 	config = Config{
 		path: cfgPath,
 	}
-
 	config.readConfig()
 
 	s := &alertStore{
 		capacity: 32,
+		state:    *state,
 	}
+	s.loadState()
 
 	signal_chan := make(chan os.Signal, 1)
 	signal.Notify(signal_chan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	exit_chan := make(chan int)
+	stop := make(chan bool)
 	go func() {
 		for {
 			s := <-signal_chan
 			switch s {
 			case syscall.SIGHUP:
 				config.readConfig()
+				s.saveState()
 			case syscall.SIGINT:
+				stop <- true
 				exit_chan <- 0
 			case syscall.SIGTERM:
+				stop <- true
 				exit_chan <- 0
 			case syscall.SIGQUIT:
+				stop <- true
 				exit_chan <- 0
 			default:
 				log.Printf("Unknown signal %d", s)
+				stop <- true
 				exit_chan <- 1
 			}
 		}
@@ -281,7 +341,23 @@ func main() {
 		}
 	}()
 
+	ticker := time.NewTicker(time.Duration(*interval) * time.Second)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				log.Printf("Shutting down ticker")
+				return
+			case t := <-ticker.C:
+				fmt.Println("Processing alert store at", t)
+				s.processAlerts()
+			}
+		}
+	}()
+
 	code := <-exit_chan
 	log.Printf("Shutting down")
+	s.saveState()
+	ticker.Stop()
 	os.Exit(code)
 }
