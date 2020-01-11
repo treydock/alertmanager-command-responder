@@ -158,6 +158,8 @@ func (s *alertStore) alertsHandler(w http.ResponseWriter, r *http.Request) {
 		s.getHandler(w, r)
 	case http.MethodPost:
 		s.postHandler(w, r)
+	case http.MethodDelete:
+		s.deleteHandler(w, r)
 	}
 }
 
@@ -202,6 +204,14 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 	s.Unlock()
 	alertJson, _ := json.Marshal(m)
 	log.Printf("alert = %s", alertJson)
+}
+
+func (s *alertStore) deleteHandler(w http.ResponseWriter, r *http.Request) {
+	s.Lock()
+	s.alerts = nil
+	s.Unlock()
+	w.WriteHeader(http.StatusAccepted)
+	io.WriteString(w, "deleted\n")
 }
 
 func main() {
@@ -257,6 +267,7 @@ func main() {
 	r.HandleFunc("/config", configHandler).Methods(http.MethodGet)
 	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodGet)
 	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodPost)
+	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodDelete)
 	r.HandleFunc("/", notFound)
 	srv := &http.Server{
 		Handler:      r,
