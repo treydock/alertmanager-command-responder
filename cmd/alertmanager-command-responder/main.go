@@ -34,13 +34,16 @@ type (
 	}
 
 	Config struct {
-		SSHKey     string      `yaml:"ssh_key" json:"ssh_key"`
-		Responders []Responder `yaml:"responders" json:"responders"`
-		path       string
+		SSHKey       string            `yaml:"ssh_key" json:"ssh_key"`
+		HostLabel    string            `yaml:"host_label" json:"host_label"`
+		CommandLabel string            `yaml:"command_label" json:"command_label"`
+		Responders   []ConfigResponder `yaml:"responders" json:"responders"`
+		path         string
 	}
 
-	Responder struct {
-		Host string
+	ConfigResponder struct {
+		Match   []map[string]string `yaml:"match" json:"match"`
+		Command string              `yaml:"command" json:"command"`
 	}
 
 	HookMessage struct {

@@ -1,4 +1,7 @@
+host_label: host
+command_label: responder-cmd
 ssh_key: /var/lib/user/.ssh/id_rsa
 responders:
-  - host: localhost
+  - match:
+      - alertname: node_load1
     command: uptime
