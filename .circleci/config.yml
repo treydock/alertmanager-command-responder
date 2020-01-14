@@ -34,7 +34,7 @@ jobs:
   release:
     executor: golang
     steps:
-    - prometheus/setup_environment
+    - prometheus/setup_build_environment
     - run: promu crossbuild tarballs
     - run: promu checksum .tarballs
     - run: promu release .tarballs
