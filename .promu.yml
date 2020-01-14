@@ -18,3 +18,6 @@ build:
 tarball:
     files:
         - LICENSE
+crossbuild:
+  platforms:
+  - linux/amd64
