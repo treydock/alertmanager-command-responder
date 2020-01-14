@@ -28,6 +28,19 @@ jobs:
         root: .
         paths:
         - .build
+    - store_artifacts:
+        path: .build
+        destination: /build
+  release:
+    executor: golang
+    steps:
+    - prometheus/setup_environment
+    - run: promu crossbuild tarballs
+    - run: promu checksum .tarballs
+    - run: promu release .tarballs
+    - store_artifacts:
+        destination: releases
+        path: .tarballs
 workflows:
   version: 2
   alertmanager-command-responder:
@@ -40,19 +53,12 @@ workflows:
         filters:
           tags:
             only: /.*/
-    - prometheus/publish_master:
-        requires:
-        - test
-        - build
-        filters:
-          branches:
-            only: master
-    - prometheus/publish_release:
+    - release:
         requires:
         - test
         - build
         filters:
           tags:
-            only: /^v.*/
+            only: /^([0-9]).*/
           branches:
             ignore: /.*/
