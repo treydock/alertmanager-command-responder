@@ -20,9 +20,6 @@ import (
 )
 
 var (
-	gitTag     string
-	gitSha     string
-	buildTime  string
 	config     Config
 	cfgPath    = kingpin.Flag("cfg", "path to configuration file").Default("").String()
 	listenAddr = kingpin.Flag("listen", "HTTP port to listen on").Default(":10000").String()
@@ -32,9 +29,9 @@ var (
 
 type (
 	Version struct {
-		GitTag    string `json:"version"`
-		GitSha    string `json:"sha1sum"`
-		BuildTime string `json:"buildtime"`
+		Version   string `json:"version"`
+		Revision  string `json:"revision"`
+		BuildDate string `json:"builddate"`
 	}
 
 	Config struct {
@@ -90,7 +87,7 @@ func fileExists(filename string) bool {
 }
 
 func versionJSON() []byte {
-	versionValue := Version{gitTag, gitSha, buildTime}
+	versionValue := Version{version.Version, version.Revision, version.BuildDate}
 	jsonValue, _ := json.Marshal(versionValue)
 	return jsonValue
 }
