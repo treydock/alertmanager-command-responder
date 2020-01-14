@@ -2,23 +2,40 @@
 version: 2.1
 
 orbs:
-  prometheus: prometheus/prometheus@0.1.0
+  prometheus: prometheus/prometheus@0.4.0
 
-build:
-  machine:
-    image: ubuntu-1604:201903-01
-  steps:
-  - checkout
-  - run: make promu
-  - run: promu crossbuild -v
-  - persist_to_workspace:
-    root: .
-    paths:
-    - .build
+executors:
+  # Whenever the Go version is updated here, .promu.yml should
+  # also be updated.
+  golang:
+    docker:
+    - image: circleci/golang:1.13
+
+jobs:
+  test:
+    executor: golang
+    steps:
+    - prometheus/setup_environment
+    - run: make build
+  build:
+    machine:
+      image: ubuntu-1604:201903-01
+    steps:
+    - checkout
+    - run: make promu
+    - run: promu crossbuild -v
+    - persist_to_workspace:
+        root: .
+        paths:
+        - .build
 workflows:
   version: 2
   alertmanager-command-responder:
     jobs:
+    - test:
+        filters:
+          tags:
+            only: /.*/
     - build:
         filters:
           tags:
