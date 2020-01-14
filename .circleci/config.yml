@@ -54,6 +54,7 @@ workflows:
           tags:
             only: /.*/
     - release:
+        context: org-context
         requires:
         - test
         - build
