@@ -2,11 +2,8 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,15 +13,21 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/prometheus/common/log"
+	"github.com/prometheus/common/version"
+	"gopkg.in/alecthomas/kingpin.v2"
 	"gopkg.in/yaml.v2"
 )
 
 var (
-	gitTag    string
-	gitSha    string
-	buildTime string
-	config    Config
-	cfgPath   string
+	gitTag     string
+	gitSha     string
+	buildTime  string
+	config     Config
+	cfgPath    = kingpin.Flag("cfg", "path to configuration file").Default("").String()
+	listenAddr = kingpin.Flag("listen", "HTTP port to listen on").Default(":10000").String()
+	interval   = kingpin.Flag("interval", "Interval in seconds to operate on received alerts").Default("60").Int()
+	state      = kingpin.Flag("state", "Path to saved state file").Default("").String()
 )
 
 type (
@@ -99,7 +102,7 @@ func (c *Config) Parse(data []byte) error {
 	if c.User == "" {
 		u, err := user.Current()
 		if err != nil {
-			log.Println("error getting user:", err)
+			log.Errorln("error getting user:", err)
 		}
 		c.User = u.Username
 	}
@@ -128,7 +131,7 @@ func (c *Config) Parse(data []byte) error {
 }
 
 func (c *Config) readConfig() {
-	log.Println("reading config:", c.path)
+	log.Infoln("reading config:", c.path)
 	data, err := ioutil.ReadFile(c.path)
 	if err != nil {
 		log.Fatal(err)
@@ -137,7 +140,7 @@ func (c *Config) readConfig() {
 		log.Fatal(err)
 	}
 	cfgJson, _ := json.Marshal(c)
-	log.Printf("CONFIG: %s\n", cfgJson)
+	log.Debugf("CONFIG: %s\n", cfgJson)
 }
 
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
@@ -184,7 +187,7 @@ func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.Unlock()
 
 	if err := enc.Encode(s.Alerts); err != nil {
-		log.Println("error encoding messages:", err)
+		log.Errorln("error encoding messages:", err)
 	}
 }
 
@@ -194,7 +197,7 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 
 	var m HookMessage
 	if err := dec.Decode(&m); err != nil {
-		log.Println("error decoding message:", err)
+		log.Errorln("error decoding message:", err)
 		http.Error(w, "invalid request body", 400)
 		return
 	}
@@ -209,7 +212,7 @@ func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
 		_, a = a[0], a[1:]
 		s.Alerts = a
 	}
-	log.Printf("Received %s alerts\n", len(m.Alerts))
+	log.Infof("Received %d alerts\n", len(m.Alerts))
 	w.WriteHeader(http.StatusCreated)
 	io.WriteString(w, "created\n")
 }
@@ -226,18 +229,18 @@ func (s *alertStore) saveState() error {
 	if s.state == "" {
 		return nil
 	}
-	log.Println("INFO: Saving state to", s.state)
+	log.Infoln("Saving state to", s.state)
 	s.Lock()
 	defer s.Unlock()
 	jsonData, err := json.MarshalIndent(s, "", " ")
 	if err != nil {
-		log.Println("ERROR: generating state:", err)
+		log.Errorln("generating state:", err)
 		return err
 	}
 	jsonFile, err := os.Create(s.state)
 	defer jsonFile.Close()
 	if err != nil {
-		log.Println("ERROR: saving state:", s.state, err)
+		log.Errorln("saving state:", s.state, err)
 		return err
 	}
 	jsonFile.Write(jsonData)
@@ -249,50 +252,51 @@ func (s *alertStore) loadState() error {
 		return nil
 	}
 	if !fileExists(s.state) {
-		log.Printf("State file %s does not exist", s.state)
+		log.Infof("State file %s does not exist", s.state)
 		return nil
 	}
 	s.Lock()
 	defer s.Unlock()
-	log.Println("INFO Loading state from", s.state)
+	log.Infoln("Loading state from", s.state)
 	jsonFile, err := os.Open(s.state)
 	if err != nil {
-		log.Println("ERROR: loading state:", s.state, err)
+		log.Errorln("loading state:", s.state, err)
 		return err
 	}
 	defer jsonFile.Close()
 	err = json.NewDecoder(jsonFile).Decode(&s)
 	if err != nil {
-		log.Println("ERROR: Parsing JSON state:", err)
+		log.Errorln("Parsing JSON state:", err)
 		return err
 	}
 	return nil
 }
 
 func (s *alertStore) processAlerts() error {
-	fmt.Printf("Processing %d alerts\n", len(s.Alerts))
+	log.Infof("Processing %d alerts\n", len(s.Alerts))
+	s.Lock()
+	defer s.Unlock()
 
 	return nil
 }
 
 func main() {
-	flag.StringVar(&cfgPath, "cfg", "", "path to configuration file")
-	listenAddr := flag.String("listen", ":10000", "HTTP port to listen on")
-	interval := flag.Int("interval", 60, "Interval in seconds to operate on received alerts")
-	state := flag.String("state", "", "Path to saved state file")
-	printVersion := flag.Bool("version", false, "if true, print version and exit")
-	flag.Parse()
+	log.AddFlags(kingpin.CommandLine)
+	kingpin.Version(version.Print("alertmanager-command-responder"))
+	kingpin.HelpFlag.Short('h')
+	kingpin.Parse()
 
-	if *printVersion {
-		fmt.Println(versionJSON())
+	/*if *printVersion {
+		//log.Println(versionJSON())
+		version.Print("alertmanager-command-responder")
 		os.Exit(0)
-	}
+	}*/
 
-	if len(cfgPath) == 0 {
+	if len(*cfgPath) == 0 {
 		log.Fatal("Must pass -cfg")
 	}
 	config = Config{
-		path: cfgPath,
+		path: *cfgPath,
 	}
 	config.readConfig()
 
@@ -323,7 +327,7 @@ func main() {
 				stop <- true
 				exit_chan <- 0
 			default:
-				log.Println("Unknown signal", sig)
+				log.Errorln("Unknown signal", sig)
 				stop <- true
 				exit_chan <- 1
 			}
@@ -355,17 +359,17 @@ func main() {
 		for {
 			select {
 			case <-stop:
-				log.Println("Shutting down ticker")
+				log.Infoln("Shutting down ticker")
 				return
 			case t := <-ticker.C:
-				fmt.Println("Processing alert store at", t)
+				log.Infoln("Processing alert store at", t)
 				s.processAlerts()
 			}
 		}
 	}()
 
 	code := <-exit_chan
-	log.Println("Shutting down")
+	log.Info("Shutting down")
 	s.saveState()
 	ticker.Stop()
 	os.Exit(code)
