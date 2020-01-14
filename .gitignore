@@ -1,1 +1,3 @@
-alertmanager-command-responder
+/alertmanager-command-responder
+/.build
+/.tarballs
