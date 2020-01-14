@@ -1,0 +1,43 @@
+---
+version: 2.1
+
+orbs:
+  prometheus: prometheus/prometheus@0.1.0
+
+build:
+  machine:
+    image: ubuntu-1604:201903-01
+  steps:
+  - checkout
+  - run: make promu
+  - run: promu crossbuild -v
+  - persist_to_workspace:
+    root: .
+    paths:
+    - .build
+workflows:
+  version: 2
+  alertmanager-command-responder:
+    jobs:
+    - build:
+        filters:
+          tags:
+            only: /.*/
+    - prometheus/publish_master:
+        context: org-context
+        requires:
+        - test
+        - build
+        filters:
+          branches:
+            only: master
+    - prometheus/publish_release:
+        context: org-context
+        requires:
+        - test
+        - build
+        filters:
+          tags:
+            only: /^v.*/
+          branches:
+            ignore: /.*/
