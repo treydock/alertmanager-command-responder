@@ -1,12 +1,9 @@
-PROMU := $(shell go env GOPATH)/bin/promu
+DOCKER_ARCHS ?= amd64 armv7 arm64 ppc64le s390x
+DOCKER_REPO	 ?= treydock
 
-PREFIX ?= $(shell pwd)
+include Makefile.common
 
-build: promu
-	@$(PROMU) build --verbose --prefix $(PREFIX)
+DOCKER_IMAGE_NAME ?= alertmanager-command-responder
 
-promu:
-	go get -u github.com/prometheus/promu
-
-docker-build:
-	docker build -t treydock/alertmanager-command-responder:latest .
+coverage:
+	go test -race -coverpkg=./... -coverprofile=coverage.txt -covermode=atomic ./...
