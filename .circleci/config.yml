@@ -2,64 +2,59 @@
 version: 2.1
 
 orbs:
-  prometheus: prometheus/prometheus@0.4.0
+  prometheus: prometheus/prometheus@0.8.0
+  codecov: codecov/codecov@1.0.5
 
 executors:
   # Whenever the Go version is updated here, .promu.yml should
   # also be updated.
   golang:
     docker:
-    - image: circleci/golang:1.13
+      - image: cimg/go:1.18
 
 jobs:
   test:
     executor: golang
     steps:
-    - prometheus/setup_environment
-    - run: make build
-  build:
-    machine:
-      image: ubuntu-1604:201903-01
-    steps:
-    - checkout
-    - run: make promu
-    - run: promu crossbuild -v
-    - persist_to_workspace:
-        root: .
-        paths:
-        - .build
-    - store_artifacts:
-        path: .build
-        destination: /build
-  release:
-    executor: golang
-    steps:
-    - prometheus/setup_build_environment
-    - run: promu crossbuild tarballs
-    - run: promu checksum .tarballs
-    - run: promu release .tarballs
-    - store_artifacts:
-        destination: releases
-        path: .tarballs
+      - prometheus/setup_environment
+      - run: make
+      - run: make coverage
+      - codecov/upload:
+          file: coverage.txt
+      - prometheus/store_artifact:
+          file: alertmanager-command-responder
 workflows:
   version: 2
   alertmanager-command-responder:
     jobs:
-    - test:
-        filters:
-          tags:
-            only: /.*/
-    - build:
-        filters:
-          tags:
-            only: /.*/
-    - release:
-        context: org-context
-        requires:
-        - test
-        - build
-        filters:
-          tags:
-            only: /^([0-9]).*/
-          branches:
-            ignore: /.*/
+      - test:
+          filters:
+            tags:
+              only: /.*/
+      - prometheus/build:
+          name: build
+          filters:
+            tags:
+              only: /.*/
+      - prometheus/publish_master:
+          context: org-context
+          docker_hub_organization: treydock
+          quay_io_organization: treydock
+          requires:
+            - test
+            - build
+          filters:
+            branches:
+              only: main
+      - prometheus/publish_release:
+          context: org-context
+          docker_hub_organization: treydock
+          quay_io_organization: treydock
+          requires:
+            - test
+            - build
+          filters:
+            tags:
+              only: /^v([0-9]).*/
+            branches:
+              ignore: /.*/

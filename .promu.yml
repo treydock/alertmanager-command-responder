@@ -1,23 +1,34 @@
+---
 go:
-  version: 1.13.6
+  version: 1.18
   cgo: false
 repository:
-    path: github.com/treydock/alertmanager-command-responder
+  path: github.com/treydock/alertmanager-command-responder
 build:
-    binaries:
-        - name: alertmanager-command-responder
-          path: cmd/alertmanager-command-responder
-    flags: -a -tags netgo
-    ldflags: |
-        -extldflags "-static"
-        -X github.com/prometheus/common/version.Version={{.Version}}
-        -X github.com/prometheus/common/version.Revision={{.Revision}}
-        -X github.com/prometheus/common/version.Branch={{.Branch}}
-        -X github.com/prometheus/common/version.BuildUser={{user}}@{{host}}
-        -X github.com/prometheus/common/version.BuildDate={{date "20060102-15:04:05"}}
+  binaries:
+    - name: alertmanager-command-responder
+      path: cmd/alertmanager-command-responder
+  flags: -a -tags netgo
+  ldflags: |
+    -extldflags "-static"
+    -X github.com/prometheus/common/version.Version={{.Version}}
+    -X github.com/prometheus/common/version.Revision={{.Revision}}
+    -X github.com/prometheus/common/version.Branch={{.Branch}}
+    -X github.com/prometheus/common/version.BuildUser={{user}}@{{host}}
+    -X github.com/prometheus/common/version.BuildDate={{date "20060102-15:04:05"}}
 tarball:
-    files:
-        - LICENSE
+  files:
+    - LICENSE
 crossbuild:
   platforms:
-  - linux/amd64
+    - linux/amd64
+    - linux/386
+    - linux/arm
+    - linux/arm64
+    - linux/mips
+    - linux/mipsle
+    - linux/mips64
+    - linux/mips64le
+    - linux/ppc64
+    - linux/ppc64le
+    - linux/s390x

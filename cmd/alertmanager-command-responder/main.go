@@ -1,331 +1,143 @@
+// Copyright 2022 Trey Dockendorf
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
 	"encoding/json"
-	"io"
-	"io/ioutil"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
-	"os/user"
-	"sync"
 	"syscall"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/gorilla/mux"
-	"github.com/prometheus/common/log"
+	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/prometheus/common/promlog"
+	"github.com/prometheus/common/promlog/flag"
 	"github.com/prometheus/common/version"
-	"gopkg.in/alecthomas/kingpin.v2"
-	"gopkg.in/yaml.v2"
+	"github.com/treydock/alertmanager-command-responder/internal/alert"
+	"github.com/treydock/alertmanager-command-responder/internal/config"
+	"github.com/treydock/alertmanager-command-responder/internal/metrics"
+	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
-	config     Config
-	cfgPath    = kingpin.Flag("cfg", "path to configuration file").Default("").String()
-	listenAddr = kingpin.Flag("listen", "HTTP port to listen on").Default(":10000").String()
-	interval   = kingpin.Flag("interval", "Interval in seconds to operate on received alerts").Default("60").Int()
-	state      = kingpin.Flag("state", "Path to saved state file").Default("").String()
+	configPath = kingpin.Flag("config.file", "path to configuration file").Default("alertmanager-command-responder.yaml").String()
+	listenAddr = kingpin.Flag("web.listen-address", "HTTP port to listen on").Default(":10000").String()
 )
 
-type (
-	Version struct {
-		Version   string `json:"version"`
-		Revision  string `json:"revision"`
-		BuildDate string `json:"builddate"`
-	}
-
-	Config struct {
-		User         string            `yaml:"user" json:"user"`
-		SSHKey       string            `yaml:"ssh_key" json:"ssh_key"`
-		HostLabel    string            `yaml:"host_label" json:"host_label"`
-		CommandLabel string            `yaml:"command_label" json:"command_label"`
-		Responders   []ConfigResponder `yaml:"responders" json:"responders"`
-		path         string
-	}
-
-	ConfigResponder struct {
-		Match   []map[string]string `yaml:"match" json:"match"`
-		Command string              `yaml:"command" json:"command"`
-		User    string              `yaml:"user" json:"user"`
-		SSHKey  string              `yaml:"ssh_key" json:"ssh_key"`
-	}
-
-	HookMessage struct {
-		Version           string            `json:"version"`
-		GroupKey          string            `json:"groupKey"`
-		Status            string            `json:"status"`
-		Receiver          string            `json:"receiver"`
-		GroupLabels       map[string]string `json:"groupLabels"`
-		CommonLabels      map[string]string `json:"commonLabels"`
-		CommonAnnotations map[string]string `json:"commonAnnotations"`
-		ExternalURL       string            `json:"externalURL"`
-		Alerts            []Alert           `json:"alerts"`
-	}
-
-	// Alert is a single alert.
-	Alert struct {
-		Labels      map[string]string `json:"labels"`
-		Annotations map[string]string `json:"annotations"`
-		StartsAt    string            `json:"startsAt,omitempty"`
-		EndsAt      string            `json:"EndsAt,omitempty"`
-	}
-
-	alertStore struct {
-		sync.Mutex
-		capacity int            `json:"alerts"`
-		state    string         `json:"state"`
-		Alerts   []*HookMessage `json:"alerts"`
-	}
-)
-
-func fileExists(filename string) bool {
-	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
+func init() {
+	metrics.MetricsInit()
 }
 
-func versionJSON() []byte {
-	versionValue := Version{version.Version, version.Revision, version.BuildDate}
-	jsonValue, _ := json.Marshal(versionValue)
-	return jsonValue
+type Version struct {
+	Version   string `json:"version"`
+	Revision  string `json:"revision"`
+	BuildDate string `json:"builddate"`
 }
 
-func (c *Config) Parse(data []byte) error {
-	if err := yaml.Unmarshal(data, c); err != nil {
-		return err
-	}
-	if c.User == "" {
-		u, err := user.Current()
-		if err != nil {
-			log.Errorln("error getting user:", err)
-		}
-		c.User = u.Username
-	}
-	if c.SSHKey != "" {
-		if !fileExists(c.SSHKey) {
-			log.Fatalf("SSH key %s does not exist!", c.SSHKey)
-		}
-	}
-	for idx, r := range c.Responders {
-		if r.User == "" {
-			c.Responders[idx].User = c.User
-		}
-		if r.SSHKey == "" {
-			c.Responders[idx].SSHKey = c.SSHKey
-		}
-		if c.Responders[idx].SSHKey != "" {
-			if !fileExists(c.Responders[idx].SSHKey) {
-				log.Fatalf("SSH key %s does not exist!", c.Responders[idx].SSHKey)
-			}
-		}
-	}
-	//	return errors.New("Kitchen config: invalid `hostname`")
-	//}
-	// ... same check for Username, SSHKey, and Port ...
-	return nil
+type JSONResponse struct {
+	Status     string      `json:"status"`
+	StatusCode int         `json:"statusCode"`
+	Message    string      `json:"message,omitempty"`
+	Data       interface{} `json:"data,omitempty"`
+	logger     log.Logger
 }
 
-func (c *Config) readConfig() {
-	log.Infoln("reading config:", c.path)
-	data, err := ioutil.ReadFile(c.path)
-	if err != nil {
-		log.Fatal(err)
+func asJSON(w http.ResponseWriter, response JSONResponse) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(response.StatusCode)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		level.Error(response.logger).Log("msg", "error encoding response", "err", err)
+		json.NewEncoder(w).Encode(JSONResponse{Status: "error", StatusCode: http.StatusBadRequest, Message: err.Error()})
 	}
-	if err := c.Parse(data); err != nil {
-		log.Fatal(err)
-	}
-	cfgJson, _ := json.Marshal(c)
-	log.Debugf("CONFIG: %s\n", cfgJson)
 }
 
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "ok\n")
+	asJSON(w, JSONResponse{Status: "ok", StatusCode: http.StatusOK})
 }
 
 func versionHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(versionJSON())
+	v := Version{version.Version, version.Revision, version.BuildDate}
+	asJSON(w, JSONResponse{Status: "ok", StatusCode: http.StatusOK, Data: v})
 }
 
-func configHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	jsonValue, _ := json.Marshal(config)
-	w.Write(jsonValue)
-}
-
-func (s *alertStore) alertsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	switch r.Method {
-	case http.MethodGet:
-		s.getHandler(w, r)
-	case http.MethodPost:
-		s.postHandler(w, r)
-	case http.MethodDelete:
-		s.deleteHandler(w, r)
-	}
+func configHandler(w http.ResponseWriter, r *http.Request, c *config.Config) {
+	asJSON(w, JSONResponse{Status: "ok", StatusCode: http.StatusOK, Data: c})
 }
 
 func notFound(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotFound)
-	w.Write([]byte(`{"message": "not found"}`))
+	asJSON(w, JSONResponse{Status: "error", StatusCode: http.StatusNotFound, Message: "not found"})
 }
 
-func (s *alertStore) getHandler(w http.ResponseWriter, r *http.Request) {
-	enc := json.NewEncoder(w)
-	w.Header().Set("Content-Type", "application/json")
+/*func getAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config) {
+	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusOK, Data: s.Alerts, logger: s.Logger})
+}*/
 
-	s.Lock()
-	defer s.Unlock()
-
-	if err := enc.Encode(s.Alerts); err != nil {
-		log.Errorln("error encoding messages:", err)
-	}
-}
-
-func (s *alertStore) postHandler(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(r.Body)
+func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, logger log.Logger) {
 	defer r.Body.Close()
-
-	var m HookMessage
-	if err := dec.Decode(&m); err != nil {
-		log.Errorln("error decoding message:", err)
-		http.Error(w, "invalid request body", 400)
+	var data template.Data
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		level.Error(logger).Log("msg", "error decoding message", "err", err)
+		asJSON(w, JSONResponse{Status: "error", StatusCode: http.StatusBadRequest, Message: err.Error()})
 		return
 	}
+	level.Info(logger).Log("msg", fmt.Sprintf("Received %d alerts", len(data.Alerts)))
+	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusCreated})
 
-	s.Lock()
-	defer s.Unlock()
-
-	s.Alerts = append(s.Alerts, &m)
-
-	if len(s.Alerts) > s.capacity {
-		a := s.Alerts
-		_, a = a[0], a[1:]
-		s.Alerts = a
+	for _, a := range data.Alerts {
+		go func() {
+			newAlert := alert.Alert{
+				Alert: a,
+			}
+			newAlert.HandleAlert(c, logger)
+		}()
 	}
-	log.Infof("Received %d alerts\n", len(m.Alerts))
-	w.WriteHeader(http.StatusCreated)
-	io.WriteString(w, "created\n")
 }
 
-func (s *alertStore) deleteHandler(w http.ResponseWriter, r *http.Request) {
-	s.Lock()
-	s.Alerts = nil
-	s.Unlock()
-	w.WriteHeader(http.StatusAccepted)
-	io.WriteString(w, "deleted\n")
+func metricsHandler(w http.ResponseWriter, r *http.Request) {
+	gatherers := metrics.Metrics()
+	h := promhttp.HandlerFor(gatherers, promhttp.HandlerOpts{})
+	h.ServeHTTP(w, r)
 }
 
-func (s *alertStore) saveState() error {
-	if s.state == "" {
-		return nil
-	}
-	log.Infoln("Saving state to", s.state)
-	s.Lock()
-	defer s.Unlock()
-	jsonData, err := json.MarshalIndent(s, "", " ")
-	if err != nil {
-		log.Errorln("generating state:", err)
-		return err
-	}
-	jsonFile, err := os.Create(s.state)
-	defer jsonFile.Close()
-	if err != nil {
-		log.Errorln("saving state:", s.state, err)
-		return err
-	}
-	jsonFile.Write(jsonData)
-	return nil
-}
-
-func (s *alertStore) loadState() error {
-	if s.state == "" {
-		return nil
-	}
-	if !fileExists(s.state) {
-		log.Infof("State file %s does not exist", s.state)
-		return nil
-	}
-	s.Lock()
-	defer s.Unlock()
-	log.Infoln("Loading state from", s.state)
-	jsonFile, err := os.Open(s.state)
-	if err != nil {
-		log.Errorln("loading state:", s.state, err)
-		return err
-	}
-	defer jsonFile.Close()
-	err = json.NewDecoder(jsonFile).Decode(&s)
-	if err != nil {
-		log.Errorln("Parsing JSON state:", err)
-		return err
-	}
-	return nil
-}
-
-func (s *alertStore) processAlerts() error {
-	log.Infof("Processing %d alerts\n", len(s.Alerts))
-	s.Lock()
-	defer s.Unlock()
-
-	return nil
-}
-
-func main() {
-	log.AddFlags(kingpin.CommandLine)
-	kingpin.Version(version.Print("alertmanager-command-responder"))
-	kingpin.HelpFlag.Short('h')
-	kingpin.Parse()
-
-	/*if *printVersion {
-		//log.Println(versionJSON())
-		version.Print("alertmanager-command-responder")
-		os.Exit(0)
-	}*/
-
-	if len(*cfgPath) == 0 {
-		log.Fatal("Must pass -cfg")
-	}
-	config = Config{
-		path: *cfgPath,
-	}
-	config.readConfig()
-
-	s := &alertStore{
-		capacity: 32,
-		state:    *state,
-	}
-	s.loadState()
-
+func run(sc *config.SafeConfig, logger log.Logger) int {
 	signal_chan := make(chan os.Signal, 1)
 	signal.Notify(signal_chan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	exit_chan := make(chan int)
-	stop := make(chan bool)
 	go func() {
 		for {
 			sig := <-signal_chan
 			switch sig {
 			case syscall.SIGHUP:
-				config.readConfig()
-				s.saveState()
+				err := sc.ReadConfig()
+				if err != nil {
+					level.Error(logger).Log("msg", "Failed to load configuration file, using old config.")
+				}
 			case syscall.SIGINT:
-				stop <- true
 				exit_chan <- 0
 			case syscall.SIGTERM:
-				stop <- true
 				exit_chan <- 0
 			case syscall.SIGQUIT:
-				stop <- true
 				exit_chan <- 0
 			default:
-				log.Errorln("Unknown signal", sig)
-				stop <- true
+				level.Error(logger).Log("msg", "Unknown signal", "signal", sig)
 				exit_chan <- 1
 			}
 		}
@@ -334,10 +146,15 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/healthz", healthzHandler).Methods(http.MethodGet)
 	r.HandleFunc("/version", versionHandler).Methods(http.MethodGet)
-	r.HandleFunc("/config", configHandler).Methods(http.MethodGet)
-	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodGet)
-	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodPost)
-	r.HandleFunc("/alerts", s.alertsHandler).Methods(http.MethodDelete)
+	r.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+		configHandler(w, r, sc.C)
+	}).Methods(http.MethodGet)
+	r.HandleFunc("/alerts", func(w http.ResponseWriter, r *http.Request) {
+		postAlertHandler(w, r, sc.C, logger)
+	}).Methods(http.MethodPost)
+	r.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		metricsHandler(w, r)
+	}).Methods(http.MethodGet)
 	r.HandleFunc("/", notFound)
 	srv := &http.Server{
 		Handler:      r,
@@ -347,27 +164,31 @@ func main() {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	ticker := time.NewTicker(time.Duration(*interval) * time.Second)
-	go func() {
-		for {
-			select {
-			case <-stop:
-				log.Infoln("Shutting down ticker")
-				return
-			case t := <-ticker.C:
-				log.Infoln("Processing alert store at", t)
-				s.processAlerts()
-			}
+			level.Error(logger).Log("msg", "Unable to start HTTP server", "err", err)
+			os.Exit(1)
 		}
 	}()
 
 	code := <-exit_chan
-	log.Info("Shutting down")
-	s.saveState()
-	ticker.Stop()
-	os.Exit(code)
+	level.Info(logger).Log("msg", "Shutting down")
+	return code
+}
+
+func main() {
+	promlogConfig := &promlog.Config{}
+	flag.AddFlags(kingpin.CommandLine, promlogConfig)
+	kingpin.Version(version.Print("alertmanager-command-responder"))
+	kingpin.HelpFlag.Short('h')
+	kingpin.Parse()
+
+	logger := promlog.New(promlogConfig)
+	sc := config.NewSafeConfig(*configPath, logger)
+	err := sc.ReadConfig()
+	if err != nil {
+		level.Error(logger).Log("msg", "Failed to load configuration file, exiting.")
+		os.Exit(1)
+	}
+
+	e := run(sc, logger)
+	os.Exit(e)
 }

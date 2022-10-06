@@ -1,10 +1,3 @@
-host_label: host
-command_label: responder-cmd
-ssh_key: /var/lib/user/.ssh/id_rsa
-responders:
-  - match:
-      - alertname: node_load1
-    command: uptime
-  - match:
-      - alertname: http_down
-    command: systemctl restart apache2
+---
+ssh_key: /Users/tdockendorf/.ssh/id_rsa
+ssh_command_timeout: 10s
