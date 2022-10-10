@@ -58,8 +58,8 @@ func TestRun(t *testing.T) {
 	}
 	sc := &config.SafeConfig{
 		C: &config.Config{
-			User:   "test",
-			SSHKey: filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+			SSHUser: "test",
+			SSHKey:  filepath.Join(test.FixtureDir(), "id_rsa_test1"),
 		},
 	}
 	w := log.NewSyncWriter(os.Stderr)
@@ -71,9 +71,9 @@ func TestRun(t *testing.T) {
 			template.Alert{
 				Status: "firing",
 				Annotations: template.KV{
-					"command_responder_ssh_host":            fmt.Sprintf("localhost:%d", sshPort),
-					"command_responder_ssh_command":         "test1",
-					"command_responder_ssh_command_timeout": "2s",
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test1",
+					"cr_ssh_cmd_timeout": "2s",
 				},
 				Fingerprint: "test",
 			},
@@ -90,8 +90,189 @@ func TestRun(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	test.TestLock.Lock()
-	if !test.Test1 {
+	if !test.TestResults["test1"] {
 		t.Errorf("Test1 was not executed")
 	}
+	test.TestResults["test1"] = false
+	test.TestLock.Unlock()
+
+	// Test setting ssh_key via annotation
+	sc.C.SSHKey = ""
+	data = template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_key":         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_cmd":         "test1",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+
+	jsonData, err = json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post("http://localhost:10001/alerts", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test1"] {
+		t.Errorf("Test1 was not executed")
+	}
+	test.TestResults["test1"] = false
+	test.TestLock.Unlock()
+}
+
+func TestRunPassword(t *testing.T) {
+	if _, err := kingpin.CommandLine.Parse([]string{"--web.listen-address=:10002"}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser:     "test",
+			SSHPassword: "test",
+		},
+	}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+
+	data := template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test2",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post("http://localhost:10002/alerts", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test2"] {
+		t.Errorf("Test2 was not executed")
+	}
+	test.TestResults["test2"] = false
+	test.TestLock.Unlock()
+
+	// Test incorrect password
+	sc.C.SSHPassword = "wrong"
+	jsonData, err = json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post("http://localhost:10002/alerts", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if test.TestResults["test2"] {
+		t.Errorf("Test2 was executed")
+	}
+	test.TestResults["test2"] = false
+	test.TestLock.Unlock()
+}
+
+func TestRunCert(t *testing.T) {
+	if _, err := kingpin.CommandLine.Parse([]string{"--web.listen-address=:10003"}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser:        "test",
+			SSHKey:         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+			SSHCertificate: filepath.Join(test.FixtureDir(), "id_rsa_test1-cert.pub"),
+		},
+	}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+
+	data := template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test3",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post("http://localhost:10003/alerts", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test3"] {
+		t.Errorf("Test3 was not executed")
+	}
+	test.TestResults["test3"] = false
+	test.TestLock.Unlock()
+
+	// Test setting ssh_certificate via annotation
+	sc.C.SSHKey = ""
+	sc.C.SSHCertificate = ""
+	data = template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_key":         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_cert":        filepath.Join(test.FixtureDir(), "id_rsa_test1-cert.pub"),
+					"cr_ssh_cmd":         "test3",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+
+	jsonData, err = json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post("http://localhost:10003/alerts", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test3"] {
+		t.Errorf("Test3 was not executed")
+	}
+	test.TestResults["test3"] = false
 	test.TestLock.Unlock()
 }

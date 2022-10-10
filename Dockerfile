@@ -1,10 +1,9 @@
-FROM golang:1.13 AS builder
-RUN mkdir /build
-ADD . /build/
-WORKDIR /build
-RUN CGO_ENABLED=0 make build
-
-FROM alpine
-WORKDIR /
-COPY --from=builder /build/alertmanager-command-responder /alertmanager-command-responder
+ARG ARCH="amd64"
+ARG OS="linux"
+FROM quay.io/prometheus/busybox-${OS}-${ARCH}:glibc
+LABEL maintainer="Trey Dockendorf <treydock@gmail.com>"
+ARG ARCH="amd64"
+ARG OS="linux"
+COPY .build/${OS}-${ARCH}/alertmanager-command-responder /alertmanager-command-responder
+EXPOSE 10000
 ENTRYPOINT ["/alertmanager-command-responder"]
