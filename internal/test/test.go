@@ -31,9 +31,11 @@ var (
 	KnownHosts  *os.File
 	TestLock    sync.Mutex
 	TestResults = map[string]bool{
-		"test1": false,
-		"test2": false,
-		"test3": false,
+		"test1":   false,
+		"test1.1": false,
+		"test1.2": false,
+		"test2":   false,
+		"test3":   false,
 	}
 )
 

@@ -102,12 +102,12 @@ func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, 
 	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusCreated})
 
 	for _, a := range data.Alerts {
-		go func() {
+		go func(a template.Alert) {
 			newAlert := alert.Alert{
 				Alert: a,
 			}
 			newAlert.HandleAlert(c, logger)
-		}()
+		}(a)
 	}
 }
 

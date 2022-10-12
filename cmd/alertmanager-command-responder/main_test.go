@@ -53,7 +53,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestRun(t *testing.T) {
-	if _, err := kingpin.CommandLine.Parse([]string{"--web.listen-address=:10001"}); err != nil {
+	port := "10001"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -83,7 +84,7 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10001/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
@@ -117,7 +118,7 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10001/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
@@ -131,8 +132,113 @@ func TestRun(t *testing.T) {
 	test.TestLock.Unlock()
 }
 
+func TestRunStatus(t *testing.T) {
+	port := "10002"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+		},
+	}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+
+	data := template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test1.1",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "resolved",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test1.2",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_status":          "firing,resolved",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test1.1"] {
+		t.Errorf("Test1.1 was not executed")
+	}
+	if !test.TestResults["test1.2"] {
+		t.Errorf("Test1.2 was not executed")
+	}
+	test.TestResults["test1.1"] = false
+	test.TestResults["test1.2"] = false
+	test.TestLock.Unlock()
+
+	// Test resolved alert is skipped
+	data = template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test1.1",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "resolved",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test1.2",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+	jsonData, err = json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+
+	test.TestLock.Lock()
+	if !test.TestResults["test1.1"] {
+		t.Errorf("Test1.1 was not executed")
+	}
+	if test.TestResults["test1.2"] {
+		t.Errorf("Test1.2 was executed")
+	}
+	test.TestResults["test1.1"] = false
+	test.TestResults["test1.2"] = false
+	test.TestLock.Unlock()
+}
+
 func TestRunPassword(t *testing.T) {
-	if _, err := kingpin.CommandLine.Parse([]string{"--web.listen-address=:10002"}); err != nil {
+	port := "10003"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -162,7 +268,7 @@ func TestRunPassword(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10002/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
@@ -181,7 +287,7 @@ func TestRunPassword(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10002/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
@@ -196,7 +302,8 @@ func TestRunPassword(t *testing.T) {
 }
 
 func TestRunCert(t *testing.T) {
-	if _, err := kingpin.CommandLine.Parse([]string{"--web.listen-address=:10003"}); err != nil {
+	port := "10004"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -227,7 +334,7 @@ func TestRunCert(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10003/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
@@ -263,7 +370,7 @@ func TestRunCert(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error generating JSON data: %s", err)
 	}
-	_, err = http.Post("http://localhost:10003/alerts", "application/json", bytes.NewBuffer(jsonData))
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
 	}
