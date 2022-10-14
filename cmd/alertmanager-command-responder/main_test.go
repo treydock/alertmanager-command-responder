@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
+	"github.com/treydock/alertmanager-command-responder/internal/utils"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -67,6 +68,16 @@ func TestRun(t *testing.T) {
 	}
 	w := log.NewSyncWriter(os.Stderr)
 	logger := log.NewLogfmtLogger(w)
+	tmp, err := os.CreateTemp("", "file")
+	if err != nil {
+		t.Errorf("Unable to create temp file: %s", err)
+	}
+	if _, err := tmp.Write([]byte("test")); err != nil {
+		t.Errorf("Unable to write to temp file: %s", err)
+	}
+	if err := tmp.Close(); err != nil {
+		t.Errorf("Unable to close temp file: %s", err)
+	}
 	go run(sc, logger)
 
 	data := template.Data{
@@ -75,10 +86,18 @@ func TestRun(t *testing.T) {
 				Status: "firing",
 				Annotations: template.KV{
 					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
-					"cr_ssh_cmd":         "test1",
+					"cr_ssh_cmd":         "test0.0",
 					"cr_ssh_cmd_timeout": "2s",
 				},
 				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_local_cmd":         fmt.Sprintf("rm -f %s", tmp.Name()),
+					"cr_local_cmd_timeout": "2s",
+				},
+				Fingerprint: "test-command",
 			},
 		},
 	}
@@ -93,25 +112,40 @@ func TestRun(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	TestLock.Lock()
-	if !TestResults["test1"] {
+	if !TestResults["test0.0"] {
 		t.Errorf("Test1 was not executed")
 	}
-	TestResults["test1"] = false
+	TestResults["test0.0"] = false
 	TestLock.Unlock()
+	if utils.FileExists(tmp.Name()) {
+		t.Errorf("Test command file was not removed")
+	}
 
-	// Test setting ssh_key via annotation
+	// Test setting ssh_key and ssh_user via annotation
+	sc.C.SSHUser = ""
 	sc.C.SSHKey = ""
 	data = template.Data{
 		Alerts: []template.Alert{
 			template.Alert{
 				Status: "firing",
 				Annotations: template.KV{
+					"cr_ssh_user":        "test",
 					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
 					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
-					"cr_ssh_cmd":         "test1",
+					"cr_ssh_cmd":         "test0.0",
 					"cr_ssh_cmd_timeout": "2s",
 				},
 				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_user":        "test",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_cmd":         "test0.1",
+					"cr_ssh_cmd_timeout": "2s",
+				},
+				Fingerprint: "test-missing-host",
 			},
 		},
 	}
@@ -127,10 +161,14 @@ func TestRun(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	TestLock.Lock()
-	if !TestResults["test1"] {
-		t.Errorf("Test1 was not executed")
+	if !TestResults["test0.0"] {
+		t.Errorf("Test0.0 was not executed")
 	}
-	TestResults["test1"] = false
+	if TestResults["test0.1"] {
+		t.Errorf("Test0.1 should not have run")
+	}
+	TestResults["test0.0"] = false
+	TestResults["test0.1"] = false
 	TestLock.Unlock()
 }
 
@@ -496,6 +534,30 @@ func TestRunMetrics(t *testing.T) {
 				},
 				Fingerprint: "test",
 			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_local_cmd":         "exit 1",
+					"cr_local_cmd_timeout": "2s",
+				},
+				Fingerprint: "test-command-error",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_local_cmd":         "sleep 1",
+					"cr_local_cmd_timeout": "-2s",
+				},
+				Fingerprint: "test-command-timeout",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_local_cmd":         "hostname",
+					"cr_local_cmd_timeout": "2s",
+				},
+				Fingerprint: "test-command-single",
+			},
 		},
 	}
 	jsonData, err := json.Marshal(data)
@@ -511,7 +573,7 @@ func TestRunMetrics(t *testing.T) {
 	expected := `
 	# HELP alertmanager_command_responder_command_errors_total Total number of command errors
 	# TYPE alertmanager_command_responder_command_errors_total counter
-	alertmanager_command_responder_command_errors_total{type="local"} 0
+	alertmanager_command_responder_command_errors_total{type="local"} 2
 	alertmanager_command_responder_command_errors_total{type="ssh"} 3
 	`
 	if err := testutil.GatherAndCompare(metrics.Metrics(), strings.NewReader(expected),

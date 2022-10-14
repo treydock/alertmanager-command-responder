@@ -101,10 +101,6 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 	}
 	if val, ok := a.Alert.Annotations[sshHostAnnotation]; ok {
 		r.SSHHost = val
-	} else {
-		err := errors.New("Must provide SSH host using annotations")
-		level.Error(a.logger).Log("err", err)
-		return err
 	}
 	if val, ok := a.Alert.Annotations[sshCommandAnnotation]; ok {
 		r.SSHCommand = val
@@ -149,6 +145,11 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 		level.Info(localLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
 	}
 	if a.Response.SSHCommand != "" {
+		if a.Response.SSHHost == "" {
+			err := errors.New("Must provide SSH host using annotations")
+			level.Error(a.logger).Log("err", err)
+			return err
+		}
 		sshLogger := log.With(a.logger, "type", "ssh", "ssh_user", r.SSHUser, "ssh_key", r.SSHKey,
 			"ssh_cert", r.SSHCertificate, "ssh_host", r.SSHHost, "command", r.SSHCommand)
 		err = a.Response.runSSHCommand(sshLogger)

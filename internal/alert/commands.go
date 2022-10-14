@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-kit/kit/log"
@@ -31,17 +32,19 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-var (
-	execCommand = exec.CommandContext
-)
-
 func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
-	level.Info(logger).Log("msg", "Running local command")
 	errorsTotalLabels := prometheus.Labels{"type": "local"}
 	var stdout, stderr bytes.Buffer
+	localCmd := strings.Split(r.LocalCommand, " ")
+	cmdName := localCmd[0]
+	var cmdArgs []string
+	if len(localCmd) > 1 {
+		cmdArgs = localCmd[1:]
+	}
+	level.Info(logger).Log("msg", "Running local command", "command", cmdName, "args", strings.Join(cmdArgs, " "))
 	ctx, cancel := context.WithTimeout(context.Background(), r.LocalCommandTimeout)
 	defer cancel()
-	cmd := execCommand(ctx, r.LocalCommand)
+	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
