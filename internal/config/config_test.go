@@ -25,10 +25,7 @@ import (
 func TestReloadConfigDefaults(t *testing.T) {
 	w := log.NewSyncWriter(os.Stderr)
 	logger := log.NewLogfmtLogger(w)
-	sc := &SafeConfig{
-		path:   "testdata/config.yaml",
-		logger: logger,
-	}
+	sc := NewSafeConfig("testdata/config.yaml", logger)
 	err := sc.ReadConfig()
 	if err != nil {
 		t.Errorf("Unexpected err: %s", err.Error())
@@ -48,10 +45,7 @@ func TestReloadConfigDefaults(t *testing.T) {
 	if sc.C.LocalCommandTimeout != duration2 {
 		t.Errorf("LocalCommandTimeout does not match default 10s")
 	}
-	sc = &SafeConfig{
-		path:   "testdata/config-empty.yaml",
-		logger: logger,
-	}
+	sc = NewSafeConfig("testdata/config-empty.yaml", logger)
 	u, err := user.Current()
 	if err != nil {
 		t.Errorf("error getting current user: %s", err)
@@ -96,10 +90,7 @@ func TestReloadConfigBadConfigs(t *testing.T) {
 		},
 	}
 	for i, test := range tests {
-		sc := &SafeConfig{
-			path:   test.ConfigFile,
-			logger: logger,
-		}
+		sc := NewSafeConfig(test.ConfigFile, logger)
 		err := sc.ReadConfig()
 		if err == nil {
 			t.Errorf("In case %v:\nExpected:\n%v\nGot:\nnil", i, test.ExpectedError)
