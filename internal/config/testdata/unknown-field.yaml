@@ -1,5 +1,5 @@
 ---
 ssh_user: prometheus
-ssh_key: internal/test/fixtures/id_rsa_test1
-ssh_certificate: internal/test/fixtures/id_rsa_test1-cert.pub
+ssh_key: ../../cmd/alertmanager-command-responder/fixtures/id_rsa_test1
+ssh_certificate: ../../cmd/alertmanager-command-responder/fixtures/id_rsa_test1-cert.pub
 invalid_extra_field: foo

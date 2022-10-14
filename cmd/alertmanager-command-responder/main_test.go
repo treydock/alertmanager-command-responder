@@ -26,19 +26,18 @@ import (
 	"github.com/go-kit/kit/log"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
-	"github.com/treydock/alertmanager-command-responder/internal/test"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 var sshPort = 2221
 
 func TestMain(m *testing.M) {
-	s, err := test.SSHServer(sshPort)
+	s, err := SSHServer(sshPort)
 	if err != nil {
 		fmt.Printf("ERROR getting SSH server: %s", err)
 		os.Exit(1)
 	}
-	defer os.Remove(test.KnownHosts.Name())
+	defer os.Remove(KnownHosts.Name())
 
 	go func() {
 		if err := s.ListenAndServe(); err != nil {
@@ -60,7 +59,7 @@ func TestRun(t *testing.T) {
 	sc := &config.SafeConfig{
 		C: &config.Config{
 			SSHUser: "test",
-			SSHKey:  filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
 	w := log.NewSyncWriter(os.Stderr)
@@ -90,12 +89,12 @@ func TestRun(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test1"] {
+	TestLock.Lock()
+	if !TestResults["test1"] {
 		t.Errorf("Test1 was not executed")
 	}
-	test.TestResults["test1"] = false
-	test.TestLock.Unlock()
+	TestResults["test1"] = false
+	TestLock.Unlock()
 
 	// Test setting ssh_key via annotation
 	sc.C.SSHKey = ""
@@ -105,7 +104,7 @@ func TestRun(t *testing.T) {
 				Status: "firing",
 				Annotations: template.KV{
 					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
-					"cr_ssh_key":         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
 					"cr_ssh_cmd":         "test1",
 					"cr_ssh_cmd_timeout": "2s",
 				},
@@ -124,12 +123,12 @@ func TestRun(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test1"] {
+	TestLock.Lock()
+	if !TestResults["test1"] {
 		t.Errorf("Test1 was not executed")
 	}
-	test.TestResults["test1"] = false
-	test.TestLock.Unlock()
+	TestResults["test1"] = false
+	TestLock.Unlock()
 }
 
 func TestRunStatus(t *testing.T) {
@@ -140,7 +139,7 @@ func TestRunStatus(t *testing.T) {
 	sc := &config.SafeConfig{
 		C: &config.Config{
 			SSHUser: "test",
-			SSHKey:  filepath.Join(test.FixtureDir(), "id_rsa_test1"),
+			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
 	w := log.NewSyncWriter(os.Stderr)
@@ -180,16 +179,16 @@ func TestRunStatus(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test1.1"] {
+	TestLock.Lock()
+	if !TestResults["test1.1"] {
 		t.Errorf("Test1.1 was not executed")
 	}
-	if !test.TestResults["test1.2"] {
+	if !TestResults["test1.2"] {
 		t.Errorf("Test1.2 was not executed")
 	}
-	test.TestResults["test1.1"] = false
-	test.TestResults["test1.2"] = false
-	test.TestLock.Unlock()
+	TestResults["test1.1"] = false
+	TestResults["test1.2"] = false
+	TestLock.Unlock()
 
 	// Test resolved alert is skipped
 	data = template.Data{
@@ -224,16 +223,16 @@ func TestRunStatus(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test1.1"] {
+	TestLock.Lock()
+	if !TestResults["test1.1"] {
 		t.Errorf("Test1.1 was not executed")
 	}
-	if test.TestResults["test1.2"] {
+	if TestResults["test1.2"] {
 		t.Errorf("Test1.2 was executed")
 	}
-	test.TestResults["test1.1"] = false
-	test.TestResults["test1.2"] = false
-	test.TestLock.Unlock()
+	TestResults["test1.1"] = false
+	TestResults["test1.2"] = false
+	TestLock.Unlock()
 }
 
 func TestRunPassword(t *testing.T) {
@@ -274,12 +273,12 @@ func TestRunPassword(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test2"] {
+	TestLock.Lock()
+	if !TestResults["test2"] {
 		t.Errorf("Test2 was not executed")
 	}
-	test.TestResults["test2"] = false
-	test.TestLock.Unlock()
+	TestResults["test2"] = false
+	TestLock.Unlock()
 
 	// Test incorrect password
 	sc.C.SSHPassword = "wrong"
@@ -293,12 +292,12 @@ func TestRunPassword(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if test.TestResults["test2"] {
+	TestLock.Lock()
+	if TestResults["test2"] {
 		t.Errorf("Test2 was executed")
 	}
-	test.TestResults["test2"] = false
-	test.TestLock.Unlock()
+	TestResults["test2"] = false
+	TestLock.Unlock()
 }
 
 func TestRunCert(t *testing.T) {
@@ -309,8 +308,8 @@ func TestRunCert(t *testing.T) {
 	sc := &config.SafeConfig{
 		C: &config.Config{
 			SSHUser:        "test",
-			SSHKey:         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
-			SSHCertificate: filepath.Join(test.FixtureDir(), "id_rsa_test1-cert.pub"),
+			SSHKey:         filepath.Join(FixtureDir(), "id_rsa_test1"),
+			SSHCertificate: filepath.Join(FixtureDir(), "id_rsa_test1-cert.pub"),
 		},
 	}
 	w := log.NewSyncWriter(os.Stderr)
@@ -340,12 +339,12 @@ func TestRunCert(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test3"] {
+	TestLock.Lock()
+	if !TestResults["test3"] {
 		t.Errorf("Test3 was not executed")
 	}
-	test.TestResults["test3"] = false
-	test.TestLock.Unlock()
+	TestResults["test3"] = false
+	TestLock.Unlock()
 
 	// Test setting ssh_certificate via annotation
 	sc.C.SSHKey = ""
@@ -356,8 +355,8 @@ func TestRunCert(t *testing.T) {
 				Status: "firing",
 				Annotations: template.KV{
 					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
-					"cr_ssh_key":         filepath.Join(test.FixtureDir(), "id_rsa_test1"),
-					"cr_ssh_cert":        filepath.Join(test.FixtureDir(), "id_rsa_test1-cert.pub"),
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_cert":        filepath.Join(FixtureDir(), "id_rsa_test1-cert.pub"),
 					"cr_ssh_cmd":         "test3",
 					"cr_ssh_cmd_timeout": "2s",
 				},
@@ -376,10 +375,10 @@ func TestRunCert(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	test.TestLock.Lock()
-	if !test.TestResults["test3"] {
+	TestLock.Lock()
+	if !TestResults["test3"] {
 		t.Errorf("Test3 was not executed")
 	}
-	test.TestResults["test3"] = false
-	test.TestLock.Unlock()
+	TestResults["test3"] = false
+	TestLock.Unlock()
 }

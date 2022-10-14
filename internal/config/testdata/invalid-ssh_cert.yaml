@@ -1,5 +1,2 @@
 ---
-ssh_user: prometheus
-ssh_key: ../test/fixtures/id_rsa_test1
 ssh_certificate: dne
-ssh_known_hosts: testdata/known_hosts
