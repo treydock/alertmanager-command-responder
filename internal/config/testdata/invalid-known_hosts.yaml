@@ -1,0 +1,5 @@
+---
+ssh_user: prometheus
+ssh_key: ../test/fixtures/id_rsa_test1
+ssh_certificate: ../test/fixtures/id_rsa_test1-cert.pub
+ssh_known_hosts: dne
