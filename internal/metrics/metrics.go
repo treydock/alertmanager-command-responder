@@ -35,7 +35,7 @@ var (
 	CommandErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "command_errors_total",
-		Help:      "Total number of SSH command errors",
+		Help:      "Total number of command errors",
 	}, []string{"type"})
 )
 

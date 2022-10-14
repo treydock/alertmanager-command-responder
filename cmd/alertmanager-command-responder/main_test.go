@@ -20,12 +20,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
+	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -381,4 +384,162 @@ func TestRunCert(t *testing.T) {
 	}
 	TestResults["test3"] = false
 	TestLock.Unlock()
+}
+
+func TestRunGET(t *testing.T) {
+	port := "10005"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/healthz", port))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp, err = http.Get(fmt.Sprintf("http://localhost:%s/version", port))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp, err = http.Get(fmt.Sprintf("http://localhost:%s/config", port))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d got %d", http.StatusOK, resp.StatusCode)
+	}
+}
+
+func TestRunMetrics(t *testing.T) {
+	port := "10006"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+		},
+	}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+	data := template.Data{
+		Alerts: []template.Alert{
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test6.1",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test6.2",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_key":         "dne",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test6.3",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_cert":        "dne",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":         fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":          "test6.4",
+					"cr_ssh_cmd_timeout":  "2s",
+					"cr_ssh_key":          filepath.Join(FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_conn_timeout": "-2s",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":         fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":          "test6.5",
+					"cr_ssh_cmd_timeout":  "2s",
+					"cr_ssh_key":          filepath.Join(FixtureDir(), "id_rsa_test1"),
+					"cr_ssh_conn_timeout": "foo",
+				},
+				Fingerprint: "test",
+			},
+			template.Alert{
+				Status: "resolved",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "test6.6",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+					"cr_status":          "firing,resolved",
+				},
+				Fingerprint: "test",
+			},
+		},
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		t.Errorf("Unexpected error generating JSON data: %s", err)
+	}
+	resetCounters()
+	_, err = http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	time.Sleep(2 * time.Second)
+	expected := `
+	# HELP alertmanager_command_responder_command_errors_total Total number of command errors
+	# TYPE alertmanager_command_responder_command_errors_total counter
+	alertmanager_command_responder_command_errors_total{type="local"} 0
+	alertmanager_command_responder_command_errors_total{type="ssh"} 3
+	`
+	if err := testutil.GatherAndCompare(metrics.Metrics(), strings.NewReader(expected),
+		"alertmanager_command_responder_command_errors_total"); err != nil {
+		t.Errorf("unexpected collecting result:\n%s", err)
+	}
+}
+
+func TestRunInvalidJSON(t *testing.T) {
+	port := "10007"
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+		t.Fatal(err)
+	}
+	sc := &config.SafeConfig{}
+	w := log.NewSyncWriter(os.Stderr)
+	logger := log.NewLogfmtLogger(w)
+	go run(sc, logger)
+	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer([]byte("foo")))
+	if err != nil {
+		t.Errorf("Unexpected error making POST request: %s", err)
+	}
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected status code %d got %d", http.StatusBadRequest, resp.StatusCode)
+	}
+}
+
+func resetCounters() {
+	metrics.CommandErrorsTotal.Reset()
+	metrics.CommandErrorsTotal.WithLabelValues("ssh")
+	metrics.CommandErrorsTotal.WithLabelValues("local")
 }

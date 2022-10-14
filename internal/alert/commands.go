@@ -71,17 +71,20 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 		auth, err = getCertificateAuth(r.SSHKey, r.SSHCertificate)
 		if err != nil {
 			level.Error(logger).Log("msg", "Error setting up certificate auth", "err", err)
+			metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 			return err
 		}
 	} else if r.SSHKey != "" {
 		auth, err = getPrivateKeyAuth(r.SSHKey)
 		if err != nil {
 			level.Error(logger).Log("msg", "Error setting up private key auth", "err", err)
+			metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 			return err
 		}
 	} else if r.SSHPassword != "" {
 		auth = ssh.Password(r.SSHPassword)
 	}
+	level.Debug(logger).Log("msg", "Dial SSH", "timeout", r.SSHConnectionTimeout*time.Second)
 	sshConfig := &ssh.ClientConfig{
 		User:              r.SSHUser,
 		Auth:              []ssh.AuthMethod{auth},

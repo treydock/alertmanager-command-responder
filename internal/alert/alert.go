@@ -31,6 +31,7 @@ const (
 	sshKeyAnnotation       = "cr_ssh_key"
 	sshCertAnnotation      = "cr_ssh_cert"
 	sshHostAnnotation      = "cr_ssh_host"
+	sshConnTimeout         = "cr_ssh_conn_timeout"
 	sshCommandAnnotation   = "cr_ssh_cmd"
 	sshCommandTimeout      = "cr_ssh_cmd_timeout"
 	localCommandAnnotation = "cr_local_cmd"
@@ -76,6 +77,7 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 		SSHCertificate:       c.SSHCertificate,
 		SSHKnownHosts:        c.SSHKnownHosts,
 		SSHHostKeyAlgorithms: c.SSHHostKeyAlgorithms,
+		SSHConnectionTimeout: c.SSHConnectionTimeout,
 		SSHCommandTimeout:    c.SSHCommandTimeout,
 		LocalCommandTimeout:  c.LocalCommandTimeout,
 	}
@@ -106,6 +108,14 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 	}
 	if val, ok := a.Alert.Annotations[sshCommandAnnotation]; ok {
 		r.SSHCommand = val
+	}
+	if val, ok := a.Alert.Annotations[sshConnTimeout]; ok {
+		timeout, err := time.ParseDuration(val)
+		if err == nil {
+			r.SSHConnectionTimeout = timeout
+		} else {
+			level.Error(a.logger).Log("msg", "Unable to parse SSH connection timeout", "err", err, "timeout", val)
+		}
 	}
 	if val, ok := a.Alert.Annotations[sshCommandTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
