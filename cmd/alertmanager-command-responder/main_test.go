@@ -537,6 +537,15 @@ func TestRunMetrics(t *testing.T) {
 			template.Alert{
 				Status: "firing",
 				Annotations: template.KV{
+					"cr_ssh_cmd":         "test6.7",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+				},
+				Fingerprint: "test-no-host",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
 					"cr_local_cmd":         "exit 1",
 					"cr_local_cmd_timeout": "2s",
 				},
@@ -575,9 +584,12 @@ func TestRunMetrics(t *testing.T) {
 	# TYPE alertmanager_command_responder_command_errors_total counter
 	alertmanager_command_responder_command_errors_total{type="local"} 2
 	alertmanager_command_responder_command_errors_total{type="ssh"} 3
+	# HELP alertmanager_command_responder_errors_total Total number of errors
+	# TYPE alertmanager_command_responder_errors_total counter
+	alertmanager_command_responder_errors_total 3
 	`
 	if err := testutil.GatherAndCompare(metrics.Metrics(), strings.NewReader(expected),
-		"alertmanager_command_responder_command_errors_total"); err != nil {
+		"alertmanager_command_responder_command_errors_total", "alertmanager_command_responder_errors_total"); err != nil {
 		t.Errorf("unexpected collecting result:\n%s", err)
 	}
 }

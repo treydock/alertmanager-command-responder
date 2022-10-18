@@ -33,7 +33,6 @@ import (
 )
 
 func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
-	errorsTotalLabels := prometheus.Labels{"type": "local"}
 	var stdout, stderr bytes.Buffer
 	localCmd := strings.Split(r.LocalCommand, " ")
 	cmdName := localCmd[0]
@@ -50,11 +49,9 @@ func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		level.Error(logger).Log("msg", "Local command timed out")
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return fmt.Errorf("Local command timed out: %s", r.LocalCommand)
 	} else if err != nil {
 		level.Error(logger).Log("msg", "Error executing command", "err", err)
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return err
 	}
 	level.Info(logger).Log("msg", "Local command completed", "out", stdout.String(), "err", stderr.String())
@@ -63,7 +60,6 @@ func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
 
 func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	level.Info(logger).Log("msg", "Running SSH command")
-	errorsTotalLabels := prometheus.Labels{"type": "ssh"}
 	c1 := make(chan int, 1)
 	var auth ssh.AuthMethod
 	var err, sessionerror, commanderror error
@@ -74,14 +70,12 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 		auth, err = getCertificateAuth(r.SSHKey, r.SSHCertificate)
 		if err != nil {
 			level.Error(logger).Log("msg", "Error setting up certificate auth", "err", err)
-			metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 			return err
 		}
 	} else if r.SSHKey != "" {
 		auth, err = getPrivateKeyAuth(r.SSHKey)
 		if err != nil {
 			level.Error(logger).Log("msg", "Error setting up private key auth", "err", err)
-			metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 			return err
 		}
 	} else if r.SSHPassword != "" {
@@ -98,7 +92,6 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	connection, err := ssh.Dial("tcp", r.SSHHost, sshConfig)
 	if err != nil {
 		level.Error(logger).Log("msg", "Failed to establish SSH connection", "err", err)
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return err
 	}
 	defer connection.Close()
@@ -126,19 +119,16 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 		timeout = true
 		close(c1)
 		level.Error(logger).Log("msg", "Timeout executing SSH command")
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return fmt.Errorf("Timeout executing SSH command: %s", r.SSHCommand)
 	}
 	close(c1)
 
 	if sessionerror != nil {
 		level.Error(logger).Log("msg", "Failed to establish SSH session", "err", sessionerror)
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return sessionerror
 	}
 	if commanderror != nil {
 		level.Error(logger).Log("msg", "Failed to run SSH command", "err", commanderror)
-		metrics.CommandErrorsTotal.With(errorsTotalLabels).Inc()
 		return commanderror
 	}
 	level.Info(logger).Log("msg", "SSH command completed", "out", stdout.String(), "err", stderr.String())
