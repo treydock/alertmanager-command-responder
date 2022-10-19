@@ -41,9 +41,10 @@ type SafeConfig struct {
 }
 
 type Config struct {
-	User                 string        `yaml:"user" json:"user"`
+	SSHUser              string        `yaml:"ssh_user" json:"ssh_user"`
 	SSHKey               string        `yaml:"ssh_key" json:"ssh_key"`
 	SSHPassword          string        `yaml:"ssh_password" json:"ssh_password"`
+	SSHCertificate       string        `yaml:"ssh_certificate" json:"ssh_certificate"`
 	SSHKnownHosts        string        `yaml:"ssh_known_hosts" json:"ssh_known_hosts"`
 	SSHHostKeyAlgorithms []string      `yaml:"ssh_host_key_algorithms" json:"ssh_host_key_algorithms"`
 	SSHConnectionTimeout time.Duration `yaml:"ssh_connection_timeout" json:"ssh_connection_timeout"`
@@ -72,18 +73,24 @@ func (sc *SafeConfig) ParseConfig() error {
 		level.Error(sc.logger).Log("msg", "Error parsing config file", "path", sc.path, "err", err)
 		return err
 	}
-	if c.User == "" {
+	if c.SSHUser == "" {
 		u, err := user.Current()
 		if err != nil {
 			level.Error(sc.logger).Log("msg", "error getting current user", "err", err)
 			return err
 		}
-		c.User = u.Username
+		c.SSHUser = u.Username
 	}
 	if c.SSHKey != "" {
 		if !utils.FileExists(c.SSHKey) {
 			level.Error(sc.logger).Log("msg", "SSH key does not exist", "sshkey", c.SSHKey)
 			return fmt.Errorf("SSH key does not exist: %s", c.SSHKey)
+		}
+	}
+	if c.SSHCertificate != "" {
+		if !utils.FileExists(c.SSHCertificate) {
+			level.Error(sc.logger).Log("msg", "SSH certificate does not exist", "ssh_certificate", c.SSHCertificate)
+			return fmt.Errorf("SSH certificate does not exist: %s", c.SSHCertificate)
 		}
 	}
 	if c.SSHKnownHosts != "" {

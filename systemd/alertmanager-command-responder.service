@@ -1,0 +1,15 @@
+[Unit]
+Description=Alertmanager command responder
+Wants=basic.target
+After=basic.target network.target
+
+[Service]
+User=cruser
+Group=cruser
+ExecStart=/usr/local/bin/alertmanager-command-responder
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=process
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

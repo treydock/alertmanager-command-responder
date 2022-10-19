@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package test
+package main
 
 import (
 	"crypto/rand"
@@ -28,9 +28,16 @@ import (
 )
 
 var (
-	KnownHosts *os.File
-	TestLock   sync.Mutex
-	Test1      bool
+	KnownHosts  *os.File
+	TestLock    sync.Mutex
+	TestResults = map[string]bool{
+		"test0.0": false,
+		"test0.1": false,
+		"test1.1": false,
+		"test1.2": false,
+		"test2":   false,
+		"test3":   false,
+	}
 )
 
 func SSHServer(listen int) (*ssh.Server, error) {
@@ -65,11 +72,12 @@ func SSHServer(listen int) (*ssh.Server, error) {
 }
 
 func handler(s ssh.Session) {
-	if s.Command()[0] == "test1" {
-		TestLock.Lock()
-		Test1 = true
-		TestLock.Unlock()
+	TestLock.Lock()
+	cmd := s.Command()[0]
+	if _, ok := TestResults[cmd]; ok {
+		TestResults[cmd] = true
 	}
+	TestLock.Unlock()
 	return
 }
 
@@ -90,8 +98,20 @@ func publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 		fmt.Printf("ERROR parsing public key id_rsa_test1.pub: %s", err)
 		os.Exit(1)
 	}
+	pubCertBuffer, err := os.ReadFile(filepath.Join(FixtureDir(), "id_rsa_test1-cert.pub"))
+	if err != nil {
+		fmt.Printf("ERROR reading public key id_rsa_test1-cert.pub: %s", err)
+		os.Exit(1)
+	}
+	pubCert, _, _, _, err := ssh.ParseAuthorizedKey(pubCertBuffer)
+	if err != nil {
+		fmt.Printf("ERROR parsing public cert key id_rsa_test1-cert.pub: %s", err)
+		os.Exit(1)
+	}
 
 	if ssh.KeysEqual(key, pubKey) {
+		return true
+	} else if ssh.KeysEqual(key, pubCert) {
 		return true
 	} else {
 		return false

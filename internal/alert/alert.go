@@ -14,22 +14,30 @@
 package alert
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
+	"github.com/treydock/alertmanager-command-responder/internal/metrics"
+	"github.com/treydock/alertmanager-command-responder/internal/utils"
 )
 
 const (
-	userAnnotation         = "command_responder_user"
-	sshKeyAnnotation       = "command_responder_ssh_key"
-	sshHostAnnotation      = "command_responder_ssh_host"
-	sshCommandAnnotation   = "command_responder_ssh_command"
-	sshCommandTimeout      = "command_responder_ssh_command_timeout"
-	localCommandAnnotation = "command_responder_local_command"
-	localCommandTimeout    = "command_responder_local_command_timeout"
+	statusAnnotation       = "cr_status"
+	sshUserAnnotation      = "cr_ssh_user"
+	sshKeyAnnotation       = "cr_ssh_key"
+	sshCertAnnotation      = "cr_ssh_cert"
+	sshHostAnnotation      = "cr_ssh_host"
+	sshConnTimeout         = "cr_ssh_conn_timeout"
+	sshCommandAnnotation   = "cr_ssh_cmd"
+	sshCommandTimeout      = "cr_ssh_cmd_timeout"
+	localCommandAnnotation = "cr_local_cmd"
+	localCommandTimeout    = "cr_local_cmd_timeout"
 )
 
 type Alert struct {
@@ -39,8 +47,10 @@ type Alert struct {
 }
 
 type AlertResponse struct {
-	User                 string        `json:"user"`
+	Status               []string      `json:"status"`
+	SSHUser              string        `json:"ssh_user"`
 	SSHKey               string        `json:"ssh_key"`
+	SSHCertificate       string        `json:"ssh_certificate"`
 	SSHPassword          string        `json:"ssh_password"`
 	SSHKnownHosts        string        `json:"ssh_known_hosts"`
 	SSHHostKeyAlgorithms []string      `json:"ssh_host_key_algorithms"`
@@ -60,22 +70,75 @@ func (a *Alert) Name() string {
 }
 
 func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
+	var err error
 	a.logger = log.With(logger, "alert", a.Alert.Fingerprint, "alertname", a.Name())
 	level.Debug(a.logger).Log("msg", "Handling alert")
+	r, err := a.buildResponse(c)
+	if err != nil {
+		level.Error(a.logger).Log("msg", "Error building alert response", "err", err)
+		metrics.ErrorsTotal.Inc()
+		return err
+	}
+	if !utils.SliceContains(r.Status, a.Alert.Status) {
+		level.Debug(a.logger).Log("msg", "Alert status does not match alert", "status", a.Alert.Status, "expected", strings.Join(r.Status, ","))
+		return nil
+	}
+	a.Response = r
+
+	start := time.Now()
+	if a.Response.LocalCommand != "" {
+		localLogger := log.With(a.logger, "type", "local", "command", r.LocalCommand)
+		err = a.Response.runLocalCommand(localLogger)
+		if err != nil {
+			level.Error(localLogger).Log("msg", "Failed to run local command", "err", err)
+			metrics.CommandErrorsTotal.With(prometheus.Labels{"type": "local"}).Inc()
+		}
+		level.Info(localLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
+	}
+	if a.Response.SSHCommand != "" {
+		if a.Response.SSHHost == "" {
+			err := errors.New("Must provide SSH host using annotations")
+			level.Error(a.logger).Log("err", err)
+			metrics.ErrorsTotal.Inc()
+			return err
+		}
+		sshLogger := log.With(a.logger, "type", "ssh", "ssh_user", r.SSHUser, "ssh_key", r.SSHKey,
+			"ssh_cert", r.SSHCertificate, "ssh_host", r.SSHHost, "command", r.SSHCommand)
+		err = a.Response.runSSHCommand(sshLogger)
+		if err != nil {
+			level.Error(sshLogger).Log("msg", "Failed to run SSH command", "err", err)
+			metrics.CommandErrorsTotal.With(prometheus.Labels{"type": "ssh"}).Inc()
+		}
+		level.Info(sshLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
+	}
+	return err
+}
+
+func (a *Alert) buildResponse(c *config.Config) (AlertResponse, error) {
 	r := AlertResponse{
-		User:                 c.User,
+		SSHUser:              c.SSHUser,
 		SSHKey:               c.SSHKey,
 		SSHPassword:          c.SSHPassword,
+		SSHCertificate:       c.SSHCertificate,
 		SSHKnownHosts:        c.SSHKnownHosts,
 		SSHHostKeyAlgorithms: c.SSHHostKeyAlgorithms,
+		SSHConnectionTimeout: c.SSHConnectionTimeout,
 		SSHCommandTimeout:    c.SSHCommandTimeout,
 		LocalCommandTimeout:  c.LocalCommandTimeout,
 	}
-	if val, ok := a.Alert.Annotations[userAnnotation]; ok {
-		r.User = val
+	if val, ok := a.Alert.Annotations[statusAnnotation]; ok {
+		r.Status = strings.Split(val, ",")
+	} else {
+		r.Status = []string{"firing"}
+	}
+	if val, ok := a.Alert.Annotations[sshUserAnnotation]; ok {
+		r.SSHUser = val
 	}
 	if val, ok := a.Alert.Annotations[sshKeyAnnotation]; ok {
 		r.SSHKey = val
+	}
+	if val, ok := a.Alert.Annotations[sshCertAnnotation]; ok {
+		r.SSHCertificate = val
 	}
 	if val, ok := a.Alert.Annotations[sshHostAnnotation]; ok {
 		r.SSHHost = val
@@ -83,12 +146,22 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 	if val, ok := a.Alert.Annotations[sshCommandAnnotation]; ok {
 		r.SSHCommand = val
 	}
+	if val, ok := a.Alert.Annotations[sshConnTimeout]; ok {
+		timeout, err := time.ParseDuration(val)
+		if err == nil {
+			r.SSHConnectionTimeout = timeout
+		} else {
+			level.Error(a.logger).Log("msg", "Unable to parse SSH connection timeout", "err", err, "timeout", val)
+			return r, err
+		}
+	}
 	if val, ok := a.Alert.Annotations[sshCommandTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
 		if err == nil {
 			r.SSHCommandTimeout = timeout
 		} else {
 			level.Error(a.logger).Log("msg", "Unable to parse SSH command timeout", "err", err, "timeout", val)
+			return r, err
 		}
 	}
 	if val, ok := a.Alert.Annotations[localCommandAnnotation]; ok {
@@ -100,28 +173,8 @@ func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
 			r.LocalCommandTimeout = timeout
 		} else {
 			level.Error(a.logger).Log("msg", "Unable to parse local command timeout", "err", err, "timeout", val)
+			return r, err
 		}
 	}
-	a.Response = r
-
-	var err error
-	start := time.Now()
-	if a.Response.LocalCommand != "" {
-		localLogger := log.With(a.logger, "type", "local", "command", r.LocalCommand)
-		err = a.Response.runLocalCommand(localLogger)
-		if err != nil {
-			level.Error(localLogger).Log("msg", "Failed to run local command", "err", err)
-		}
-		level.Info(localLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
-	}
-	if a.Response.SSHCommand != "" {
-		sshLogger := log.With(a.logger, "type", "ssh", "user", r.User, "ssh_key", r.SSHKey,
-			"ssh_host", r.SSHHost, "command", r.SSHCommand)
-		err = a.Response.runSSHCommand(sshLogger)
-		if err != nil {
-			level.Error(sshLogger).Log("msg", "Failed to run SSH command", "err", err)
-		}
-		level.Info(sshLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
-	}
-	return err
+	return r, nil
 }

@@ -17,6 +17,15 @@ import (
 	"os"
 )
 
+func SliceContains(slice []string, str string) bool {
+	for _, s := range slice {
+		if str == s {
+			return true
+		}
+	}
+	return false
+}
+
 func FileExists(filename string) bool {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {

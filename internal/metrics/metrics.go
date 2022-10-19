@@ -32,10 +32,15 @@ var (
 			"goversion": version.GoVersion,
 		},
 	})
+	ErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "errors_total",
+		Help:      "Total number of errors",
+	})
 	CommandErrorsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespace,
 		Name:      "command_errors_total",
-		Help:      "Total number of SSH command errors",
+		Help:      "Total number of command errors",
 	}, []string{"type"})
 )
 
@@ -48,6 +53,7 @@ func MetricsInit() {
 func Metrics() prometheus.Gatherers {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(BuildInfo)
+	registry.MustRegister(ErrorsTotal)
 	registry.MustRegister(CommandErrorsTotal)
 	gatherers := prometheus.Gatherers{registry}
 	gatherers = append(gatherers, prometheus.DefaultGatherer)

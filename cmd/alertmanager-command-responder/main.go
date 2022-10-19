@@ -95,6 +95,7 @@ func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, 
 	var data template.Data
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		level.Error(logger).Log("msg", "error decoding message", "err", err)
+		metrics.ErrorsTotal.Inc()
 		asJSON(w, JSONResponse{Status: "error", StatusCode: http.StatusBadRequest, Message: err.Error()})
 		return
 	}
@@ -102,12 +103,12 @@ func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, 
 	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusCreated})
 
 	for _, a := range data.Alerts {
-		go func() {
+		go func(a template.Alert) {
 			newAlert := alert.Alert{
 				Alert: a,
 			}
 			newAlert.HandleAlert(c, logger)
-		}()
+		}(a)
 	}
 }
 
@@ -129,6 +130,7 @@ func run(sc *config.SafeConfig, logger log.Logger) int {
 				err := sc.ReadConfig()
 				if err != nil {
 					level.Error(logger).Log("msg", "Failed to load configuration file, using old config.")
+					metrics.ErrorsTotal.Inc()
 				}
 			case syscall.SIGINT:
 				exit_chan <- 0

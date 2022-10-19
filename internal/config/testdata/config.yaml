@@ -1,0 +1,5 @@
+---
+ssh_user: prometheus
+ssh_key: ../../cmd/alertmanager-command-responder/fixtures/id_rsa_test1
+ssh_certificate: ../../cmd/alertmanager-command-responder/fixtures/id_rsa_test1-cert.pub
+ssh_known_hosts: testdata/known_hosts
