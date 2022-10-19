@@ -37,7 +37,7 @@ Configuration options:
 
 * `ssh_user` - The default username for the SSH connections. Can be overriden by annotations
 * `ssh_password` - The password for the SSH connection, required if `ssh_private_key` is not specified
-* `ssh_private_key` - The SSH private key for the SSH connection, required if `password` is not specified. Can be overriden by annotations
+* `ssh_key` - The SSH private key for the SSH connection, required if `password` is not specified. Can be overriden by annotations
 * `ssh_certificate` - The SSH certificate for the private key for the SSH connection
 * `ssh_known_hosts` - Optional SSH known hosts file to use to verify hosts
 * `ssh_host_key_algorithms` - Optional list of SSH host key algorithms to use
