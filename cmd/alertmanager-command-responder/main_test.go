@@ -433,6 +433,7 @@ func TestRunGET(t *testing.T) {
 	w := log.NewSyncWriter(os.Stderr)
 	logger := log.NewLogfmtLogger(w)
 	go run(sc, logger)
+	time.Sleep(2 * time.Second)
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/healthz", port))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
