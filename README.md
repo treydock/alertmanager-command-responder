@@ -93,7 +93,7 @@ The following is an example of adding the alertmanager-command-responder webhook
 receivers:
   - name: command-responder
     webhook_configs:
-      - url: http://localhost:10000
+      - url: http://localhost:10000/alerts
 ```
 
 In your routes for alertmanager, add something like the following:
