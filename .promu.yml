@@ -1,6 +1,6 @@
 ---
 go:
-  version: 1.18
+  version: 1.20
   cgo: false
 repository:
   path: github.com/treydock/alertmanager-command-responder

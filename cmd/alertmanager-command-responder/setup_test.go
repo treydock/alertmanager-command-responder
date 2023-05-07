@@ -78,7 +78,6 @@ func handler(s ssh.Session) {
 		TestResults[cmd] = true
 	}
 	TestLock.Unlock()
-	return
 }
 
 func FixtureDir() string {

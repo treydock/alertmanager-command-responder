@@ -22,8 +22,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-kit/kit/log"
-	"github.com/go-kit/kit/log/level"
+	kingpin "github.com/alecthomas/kingpin/v2"
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -33,7 +34,6 @@ import (
 	"github.com/treydock/alertmanager-command-responder/internal/alert"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
-	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 var (
@@ -107,7 +107,11 @@ func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, 
 			newAlert := alert.Alert{
 				Alert: a,
 			}
-			newAlert.HandleAlert(c, logger)
+			err := newAlert.HandleAlert(c, logger)
+			if err != nil {
+				level.Error(logger).Log("msg", "Error handling alert", "err", err, "fingerprint", a.Fingerprint)
+				metrics.ErrorsTotal.Inc()
+			}
 		}(a)
 	}
 }
