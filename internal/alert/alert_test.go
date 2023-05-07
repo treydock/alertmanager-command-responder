@@ -17,7 +17,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"

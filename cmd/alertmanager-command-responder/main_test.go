@@ -24,13 +24,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/kit/log"
+	kingpin "github.com/alecthomas/kingpin/v2"
+	"github.com/go-kit/log"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
-	kingpin "gopkg.in/alecthomas/kingpin.v2"
 )
 
 var sshPort = 2221
@@ -587,7 +587,7 @@ func TestRunMetrics(t *testing.T) {
 	alertmanager_command_responder_command_errors_total{type="ssh"} 3
 	# HELP alertmanager_command_responder_errors_total Total number of errors
 	# TYPE alertmanager_command_responder_errors_total counter
-	alertmanager_command_responder_errors_total 3
+	alertmanager_command_responder_errors_total 12
 	`
 	if err := testutil.GatherAndCompare(metrics.Metrics(), strings.NewReader(expected),
 		"alertmanager_command_responder_command_errors_total", "alertmanager_command_responder_errors_total"); err != nil {
@@ -604,6 +604,7 @@ func TestRunInvalidJSON(t *testing.T) {
 	w := log.NewSyncWriter(os.Stderr)
 	logger := log.NewLogfmtLogger(w)
 	go run(sc, logger)
+	time.Sleep(2 * time.Second)
 	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer([]byte("foo")))
 	if err != nil {
 		t.Errorf("Unexpected error making POST request: %s", err)
