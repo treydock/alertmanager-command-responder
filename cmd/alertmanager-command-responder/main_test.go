@@ -547,6 +547,26 @@ func TestRunMetrics(t *testing.T) {
 			template.Alert{
 				Status: "firing",
 				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "sleep",
+					"cr_ssh_cmd_timeout": "-2s",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+				},
+				Fingerprint: "timeout",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
+					"cr_ssh_host":        fmt.Sprintf("localhost:%d", sshPort),
+					"cr_ssh_cmd":         "sleep",
+					"cr_ssh_cmd_timeout": "2s",
+					"cr_ssh_key":         filepath.Join(FixtureDir(), "id_rsa_test1"),
+				},
+				Fingerprint: "no-timeout",
+			},
+			template.Alert{
+				Status: "firing",
+				Annotations: template.KV{
 					"cr_local_cmd":         "exit 1",
 					"cr_local_cmd_timeout": "2s",
 				},
@@ -584,10 +604,10 @@ func TestRunMetrics(t *testing.T) {
 	# HELP alertmanager_command_responder_command_errors_total Total number of command errors
 	# TYPE alertmanager_command_responder_command_errors_total counter
 	alertmanager_command_responder_command_errors_total{type="local"} 2
-	alertmanager_command_responder_command_errors_total{type="ssh"} 3
+	alertmanager_command_responder_command_errors_total{type="ssh"} 4
 	# HELP alertmanager_command_responder_errors_total Total number of errors
 	# TYPE alertmanager_command_responder_errors_total counter
-	alertmanager_command_responder_errors_total 12
+	alertmanager_command_responder_errors_total 13
 	`
 	if err := testutil.GatherAndCompare(metrics.Metrics(), strings.NewReader(expected),
 		"alertmanager_command_responder_command_errors_total", "alertmanager_command_responder_errors_total"); err != nil {

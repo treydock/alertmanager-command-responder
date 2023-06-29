@@ -64,7 +64,6 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	var auth ssh.AuthMethod
 	var err, sessionerror, commanderror error
 	var stdout, stderr bytes.Buffer
-	timeout := false
 
 	if r.SSHCertificate != "" {
 		auth, err = getCertificateAuth(r.SSHKey, r.SSHCertificate)
@@ -96,6 +95,8 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	}
 	defer connection.Close()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func(conn *ssh.Client) {
 		var session *ssh.Session
 		session, sessionerror = conn.NewSession()
@@ -105,18 +106,17 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 		session.Stdout = &stdout
 		session.Stderr = &stderr
 		commanderror = session.Run(r.SSHCommand)
-		if commanderror != nil {
-			return
-		}
-		if !timeout {
+		select {
+		default:
 			c1 <- 1
+		case <-ctx.Done():
+			return
 		}
 	}(connection)
 
 	select {
 	case <-c1:
 	case <-time.After(r.SSHCommandTimeout):
-		timeout = true
 		close(c1)
 		level.Error(logger).Log("msg", "Timeout executing SSH command")
 		return fmt.Errorf("Timeout executing SSH command: %s", r.SSHCommand)
