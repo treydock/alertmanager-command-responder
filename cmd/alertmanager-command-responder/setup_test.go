@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/gliderlabs/ssh"
 	gossh "golang.org/x/crypto/ssh"
@@ -76,6 +77,9 @@ func handler(s ssh.Session) {
 	cmd := s.Command()[0]
 	if _, ok := TestResults[cmd]; ok {
 		TestResults[cmd] = true
+	}
+	if cmd == "sleep" {
+		time.Sleep(1 * time.Second)
 	}
 	TestLock.Unlock()
 }
