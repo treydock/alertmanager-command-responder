@@ -1,3 +1,9 @@
+## 0.2.1 / 2023-06-29
+
+### Bugfixes
+
+* Fix logic on how to handle timeouts for SSH commands (#4)
+
 ## 0.2.0 / 2023-05-07
 
 ### Changes
