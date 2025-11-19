@@ -14,11 +14,10 @@
 package alert
 
 import (
-	"os"
 	"testing"
 
-	"github.com/go-kit/log"
 	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/common/promslog"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
 )
@@ -33,7 +32,7 @@ func TestName(t *testing.T) {
 	if alert.Name() != "foo" {
 		t.Errorf("Unexpected value for name, got: %s", alert.Name())
 	}
-	alert.Alert.Labels = nil
+	alert.Labels = nil
 	if alert.Name() != "bar" {
 		t.Errorf("Unexpected value for name, got: %s", alert.Name())
 	}
@@ -46,14 +45,12 @@ func TestBuildResponse(t *testing.T) {
 			SSHKey:  "ssh_key",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
 	alert := &Alert{
 		Alert: template.Alert{
 			Labels:      map[string]string{"alertname": "foo"},
 			Fingerprint: "bar",
 		},
-		logger: logger,
+		logger: promslog.NewNopLogger(),
 	}
 	r, err := alert.buildResponse(sc.C)
 	if err != nil {
@@ -68,7 +65,7 @@ func TestBuildResponse(t *testing.T) {
 	if r.SSHKey != "ssh_key" {
 		t.Errorf("Unexpected value for SSHKey, got %s", r.SSHKey)
 	}
-	alert.Alert.Annotations = map[string]string{
+	alert.Annotations = map[string]string{
 		"cr_status":            "firing,resolved",
 		"cr_ssh_user":          "foo",
 		"cr_ssh_key":           "key",
@@ -123,8 +120,6 @@ func TestBuildResponseErrors(t *testing.T) {
 			SSHKey:  "ssh_key",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
 	alert := &Alert{
 		Alert: template.Alert{
 			Labels: map[string]string{"alertname": "foo"},
@@ -133,20 +128,20 @@ func TestBuildResponseErrors(t *testing.T) {
 			},
 			Fingerprint: "bar",
 		},
-		logger: logger,
+		logger: promslog.NewNopLogger(),
 	}
 	_, err := alert.buildResponse(sc.C)
 	if err == nil {
 		t.Errorf("Expected an error")
 	}
-	alert.Alert.Annotations = map[string]string{
+	alert.Annotations = map[string]string{
 		"cr_ssh_cmd_timeout": "foo",
 	}
 	_, err = alert.buildResponse(sc.C)
 	if err == nil {
 		t.Errorf("Expected an error")
 	}
-	alert.Alert.Annotations = map[string]string{
+	alert.Annotations = map[string]string{
 		"cr_local_cmd_timeout": "foo",
 	}
 	_, err = alert.buildResponse(sc.C)

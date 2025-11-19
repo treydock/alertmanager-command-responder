@@ -18,21 +18,20 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
-func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
+func (r *AlertResponse) runLocalCommand(logger *slog.Logger) error {
 	var stdout, stderr bytes.Buffer
 	localCmd := strings.Split(r.LocalCommand, " ")
 	cmdName := localCmd[0]
@@ -40,7 +39,7 @@ func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
 	if len(localCmd) > 1 {
 		cmdArgs = localCmd[1:]
 	}
-	level.Info(logger).Log("msg", "Running local command", "command", cmdName, "args", strings.Join(cmdArgs, " "))
+	logger.Info("Running local command", "command", cmdName, "args", strings.Join(cmdArgs, " "))
 	ctx, cancel := context.WithTimeout(context.Background(), r.LocalCommandTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cmdName, cmdArgs...)
@@ -48,18 +47,18 @@ func (r *AlertResponse) runLocalCommand(logger log.Logger) error {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		level.Error(logger).Log("msg", "Local command timed out")
-		return fmt.Errorf("Local command timed out: %s", r.LocalCommand)
+		logger.Error("Local command timed out")
+		return fmt.Errorf("local command timed out: %s", r.LocalCommand)
 	} else if err != nil {
-		level.Error(logger).Log("msg", "Error executing command", "err", err)
+		logger.Error("Error executing command", "err", err)
 		return err
 	}
-	level.Info(logger).Log("msg", "Local command completed", "out", stdout.String(), "err", stderr.String())
+	logger.Info("Local command completed", "out", stdout.String(), "err", stderr.String())
 	return nil
 }
 
-func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
-	level.Info(logger).Log("msg", "Running SSH command")
+func (r *AlertResponse) runSSHCommand(logger *slog.Logger) error {
+	logger.Info("Running SSH command")
 	c1 := make(chan int, 1)
 	var auth ssh.AuthMethod
 	var err, sessionerror, commanderror error
@@ -68,19 +67,19 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	if r.SSHCertificate != "" {
 		auth, err = getCertificateAuth(r.SSHKey, r.SSHCertificate)
 		if err != nil {
-			level.Error(logger).Log("msg", "Error setting up certificate auth", "err", err)
+			logger.Error("Error setting up certificate auth", "err", err)
 			return err
 		}
 	} else if r.SSHKey != "" {
 		auth, err = getPrivateKeyAuth(r.SSHKey)
 		if err != nil {
-			level.Error(logger).Log("msg", "Error setting up private key auth", "err", err)
+			logger.Error("Error setting up private key auth", "err", err)
 			return err
 		}
 	} else if r.SSHPassword != "" {
 		auth = ssh.Password(r.SSHPassword)
 	}
-	level.Debug(logger).Log("msg", "Dial SSH", "timeout", r.SSHConnectionTimeout*time.Second)
+	logger.Debug("Dial SSH", "timeout", r.SSHConnectionTimeout*time.Second)
 	sshConfig := &ssh.ClientConfig{
 		User:              r.SSHUser,
 		Auth:              []ssh.AuthMethod{auth},
@@ -90,7 +89,7 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	}
 	connection, err := ssh.Dial("tcp", r.SSHHost, sshConfig)
 	if err != nil {
-		level.Error(logger).Log("msg", "Failed to establish SSH connection", "err", err)
+		logger.Error("Failed to establish SSH connection", "err", err)
 		return err
 	}
 	defer connection.Close()
@@ -118,20 +117,20 @@ func (r *AlertResponse) runSSHCommand(logger log.Logger) error {
 	case <-c1:
 	case <-time.After(r.SSHCommandTimeout):
 		close(c1)
-		level.Error(logger).Log("msg", "Timeout executing SSH command")
-		return fmt.Errorf("Timeout executing SSH command: %s", r.SSHCommand)
+		logger.Error("Timeout executing SSH command")
+		return fmt.Errorf("timeout executing SSH command: %s", r.SSHCommand)
 	}
 	close(c1)
 
 	if sessionerror != nil {
-		level.Error(logger).Log("msg", "Failed to establish SSH session", "err", sessionerror)
+		logger.Error("Failed to establish SSH session", "err", sessionerror)
 		return sessionerror
 	}
 	if commanderror != nil {
-		level.Error(logger).Log("msg", "Failed to run SSH command", "err", commanderror)
+		logger.Error("Failed to run SSH command", "err", commanderror, "out", stdout.String(), "err", stderr.String())
 		return commanderror
 	}
-	level.Info(logger).Log("msg", "SSH command completed", "out", stdout.String(), "err", stderr.String())
+	logger.Info("SSH command completed", "out", stdout.String(), "err", stderr.String())
 	return nil
 }
 
@@ -150,44 +149,44 @@ func getPrivateKeyAuth(privatekey string) (ssh.AuthMethod, error) {
 func getCertificateAuth(privatekey string, certificate string) (ssh.AuthMethod, error) {
 	key, err := os.ReadFile(privatekey)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to read private key: '%s' %v", privatekey, err)
+		return nil, fmt.Errorf("unable to read private key: '%s' %v", privatekey, err)
 	}
 
 	// Create the Signer for this private key.
 	signer, err := ssh.ParsePrivateKey(key)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to parse private key: '%s' %v", privatekey, err)
+		return nil, fmt.Errorf("unable to parse private key: '%s' %v", privatekey, err)
 	}
 
 	// Load the certificate
 	cert, err := os.ReadFile(certificate)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to read certificate file: '%s' %v", certificate, err)
+		return nil, fmt.Errorf("unable to read certificate file: '%s' %v", certificate, err)
 	}
 
 	pk, _, _, _, err := ssh.ParseAuthorizedKey(cert)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to parse public key: '%s' %v", certificate, err)
+		return nil, fmt.Errorf("unable to parse public key: '%s' %v", certificate, err)
 	}
 
 	certSigner, err := ssh.NewCertSigner(pk.(*ssh.Certificate), signer)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to create cert signer: %v", err)
+		return nil, fmt.Errorf("unable to create cert signer: %v", err)
 	}
 
 	return ssh.PublicKeys(certSigner), nil
 }
 
-func hostKeyCallback(knownHosts string, logger log.Logger) ssh.HostKeyCallback {
+func hostKeyCallback(knownHosts string, logger *slog.Logger) ssh.HostKeyCallback {
 	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		var hostKeyCallback ssh.HostKeyCallback
 		var err error
 		if knownHosts != "" {
 			publicKey := base64.StdEncoding.EncodeToString(key.Marshal())
-			level.Debug(logger).Log("msg", "Verify SSH known hosts", "hostname", hostname, "remote", remote.String(), "key", publicKey)
+			logger.Debug("Verify SSH known hosts", "hostname", hostname, "remote", remote.String(), "key", publicKey)
 			hostKeyCallback, err = knownhosts.New(knownHosts)
 			if err != nil {
-				level.Error(logger).Log("msg", "Error creating hostkeycallback function", "err", err)
+				logger.Error("Error creating hostkeycallback function", "err", err)
 				metrics.CommandErrorsTotal.With(prometheus.Labels{"type": "ssh"}).Inc()
 				return err
 			}

@@ -16,13 +16,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/user"
 	"sync"
 	"time"
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
 	yaml "gopkg.in/yaml.v3"
 )
@@ -35,7 +34,7 @@ const (
 
 type SafeConfig struct {
 	path   string
-	logger log.Logger
+	logger *slog.Logger
 	mu     sync.Mutex
 	C      *Config
 }
@@ -52,7 +51,7 @@ type Config struct {
 	LocalCommandTimeout  time.Duration `yaml:"local_command_timeout" json:"local_command_timeout"`
 }
 
-func NewSafeConfig(path string, logger log.Logger) *SafeConfig {
+func NewSafeConfig(path string, logger *slog.Logger) *SafeConfig {
 	return &SafeConfig{
 		path:   path,
 		logger: logger,
@@ -63,39 +62,39 @@ func (sc *SafeConfig) ParseConfig() error {
 	var c = &Config{}
 	yamlReader, err := os.Open(sc.path)
 	if err != nil {
-		level.Error(sc.logger).Log("msg", "Error reading config file", "path", sc.path, "err", err)
+		sc.logger.Error("Error reading config file", "path", sc.path, "err", err)
 		return err
 	}
 	defer yamlReader.Close()
 	decoder := yaml.NewDecoder(yamlReader)
 	decoder.KnownFields(true)
 	if err := decoder.Decode(c); err != nil {
-		level.Error(sc.logger).Log("msg", "Error parsing config file", "path", sc.path, "err", err)
+		sc.logger.Error("Error parsing config file", "path", sc.path, "err", err)
 		return err
 	}
 	if c.SSHUser == "" {
 		u, err := user.Current()
 		if err != nil {
-			level.Error(sc.logger).Log("msg", "error getting current user", "err", err)
+			sc.logger.Error("error getting current user", "err", err)
 			return err
 		}
 		c.SSHUser = u.Username
 	}
 	if c.SSHKey != "" {
 		if !utils.FileExists(c.SSHKey) {
-			level.Error(sc.logger).Log("msg", "SSH key does not exist", "sshkey", c.SSHKey)
+			sc.logger.Error("SSH key does not exist", "sshkey", c.SSHKey)
 			return fmt.Errorf("SSH key does not exist: %s", c.SSHKey)
 		}
 	}
 	if c.SSHCertificate != "" {
 		if !utils.FileExists(c.SSHCertificate) {
-			level.Error(sc.logger).Log("msg", "SSH certificate does not exist", "ssh_certificate", c.SSHCertificate)
+			sc.logger.Error("SSH certificate does not exist", "ssh_certificate", c.SSHCertificate)
 			return fmt.Errorf("SSH certificate does not exist: %s", c.SSHCertificate)
 		}
 	}
 	if c.SSHKnownHosts != "" {
 		if !utils.FileExists(c.SSHKnownHosts) {
-			level.Error(sc.logger).Log("msg", "SSH known hosts does not exist", "path", c.SSHKnownHosts)
+			sc.logger.Error("SSH known hosts does not exist", "path", c.SSHKnownHosts)
 			return fmt.Errorf("SSH known hosts does not exist: %s", c.SSHKnownHosts)
 		}
 	}
@@ -116,11 +115,11 @@ func (sc *SafeConfig) ParseConfig() error {
 }
 
 func (sc *SafeConfig) ReadConfig() error {
-	level.Info(sc.logger).Log("msg", "reading config", "path", sc.path)
+	sc.logger.Info("reading config", "path", sc.path)
 	if err := sc.ParseConfig(); err != nil {
 		return err
 	}
 	cfgJson, _ := json.Marshal(sc.C)
-	level.Debug(sc.logger).Log("msg", "parsed config", "config", cfgJson)
+	sc.logger.Debug("parsed config", "config", cfgJson)
 	return nil
 }

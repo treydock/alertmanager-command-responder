@@ -16,6 +16,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,13 +24,11 @@ import (
 	"time"
 
 	kingpin "github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/promlog"
-	"github.com/prometheus/common/promlog/flag"
+	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/common/promslog/flag"
 	"github.com/prometheus/common/version"
 	"github.com/treydock/alertmanager-command-responder/internal/alert"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
@@ -56,7 +55,7 @@ type JSONResponse struct {
 	StatusCode int         `json:"statusCode"`
 	Message    string      `json:"message,omitempty"`
 	Data       interface{} `json:"data,omitempty"`
-	logger     log.Logger
+	logger     *slog.Logger
 }
 
 func asJSON(w http.ResponseWriter, response JSONResponse) {
@@ -64,7 +63,7 @@ func asJSON(w http.ResponseWriter, response JSONResponse) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(response.StatusCode)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		level.Error(response.logger).Log("msg", "error encoding response", "err", err)
+		response.logger.Error("error encoding response", "err", err)
 		json.NewEncoder(w).Encode(JSONResponse{Status: "error", StatusCode: http.StatusBadRequest, Message: err.Error()})
 	}
 }
@@ -90,16 +89,16 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusOK, Data: s.Alerts, logger: s.Logger})
 }*/
 
-func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, logger log.Logger) {
+func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, logger *slog.Logger) {
 	defer r.Body.Close()
 	var data template.Data
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		level.Error(logger).Log("msg", "error decoding message", "err", err)
+		logger.Error("error decoding message", "err", err)
 		metrics.ErrorsTotal.Inc()
 		asJSON(w, JSONResponse{Status: "error", StatusCode: http.StatusBadRequest, Message: err.Error()})
 		return
 	}
-	level.Info(logger).Log("msg", fmt.Sprintf("Received %d alerts", len(data.Alerts)))
+	logger.Info(fmt.Sprintf("Received %d alerts", len(data.Alerts)))
 	asJSON(w, JSONResponse{Status: "success", StatusCode: http.StatusCreated})
 
 	for _, a := range data.Alerts {
@@ -109,7 +108,7 @@ func postAlertHandler(w http.ResponseWriter, r *http.Request, c *config.Config, 
 			}
 			err := newAlert.HandleAlert(c, logger)
 			if err != nil {
-				level.Error(logger).Log("msg", "Error handling alert", "err", err, "fingerprint", a.Fingerprint)
+				logger.Error("Error handling alert", "err", err, "fingerprint", a.Fingerprint)
 				metrics.ErrorsTotal.Inc()
 			}
 		}(a)
@@ -122,7 +121,7 @@ func metricsHandler(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
-func run(sc *config.SafeConfig, logger log.Logger) int {
+func run(sc *config.SafeConfig, logger *slog.Logger) int {
 	signal_chan := make(chan os.Signal, 1)
 	signal.Notify(signal_chan, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	exit_chan := make(chan int)
@@ -133,7 +132,7 @@ func run(sc *config.SafeConfig, logger log.Logger) int {
 			case syscall.SIGHUP:
 				err := sc.ReadConfig()
 				if err != nil {
-					level.Error(logger).Log("msg", "Failed to load configuration file, using old config.")
+					logger.Error("Failed to load configuration file, using old config.")
 					metrics.ErrorsTotal.Inc()
 				}
 			case syscall.SIGINT:
@@ -143,7 +142,7 @@ func run(sc *config.SafeConfig, logger log.Logger) int {
 			case syscall.SIGQUIT:
 				exit_chan <- 0
 			default:
-				level.Error(logger).Log("msg", "Unknown signal", "signal", sig)
+				logger.Error("Unknown signal", "signal", sig)
 				exit_chan <- 1
 			}
 		}
@@ -170,28 +169,28 @@ func run(sc *config.SafeConfig, logger log.Logger) int {
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			level.Error(logger).Log("msg", "Unable to start HTTP server", "err", err)
+			logger.Error("Unable to start HTTP server", "err", err)
 			os.Exit(1)
 		}
 	}()
 
 	code := <-exit_chan
-	level.Info(logger).Log("msg", "Shutting down")
+	logger.Info("Shutting down")
 	return code
 }
 
 func main() {
-	promlogConfig := &promlog.Config{}
-	flag.AddFlags(kingpin.CommandLine, promlogConfig)
+	promslogConfig := &promslog.Config{}
+	flag.AddFlags(kingpin.CommandLine, promslogConfig)
 	kingpin.Version(version.Print("alertmanager-command-responder"))
 	kingpin.HelpFlag.Short('h')
 	kingpin.Parse()
 
-	logger := promlog.New(promlogConfig)
+	logger := promslog.New(promslogConfig)
 	sc := config.NewSafeConfig(*configPath, logger)
 	err := sc.ReadConfig()
 	if err != nil {
-		level.Error(logger).Log("msg", "Failed to load configuration file, exiting.")
+		logger.Error("Failed to load configuration file, exiting.")
 		os.Exit(1)
 	}
 

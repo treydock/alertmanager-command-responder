@@ -25,9 +25,9 @@ import (
 	"time"
 
 	kingpin "github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
@@ -66,8 +66,6 @@ func TestRun(t *testing.T) {
 			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
 	tmp, err := os.CreateTemp("", "file")
 	if err != nil {
 		t.Errorf("Unable to create temp file: %s", err)
@@ -78,7 +76,7 @@ func TestRun(t *testing.T) {
 	if err := tmp.Close(); err != nil {
 		t.Errorf("Unable to close temp file: %s", err)
 	}
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -183,9 +181,7 @@ func TestRunStatus(t *testing.T) {
 			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -287,9 +283,7 @@ func TestRunPassword(t *testing.T) {
 			SSHPassword: "test",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -353,9 +347,7 @@ func TestRunCert(t *testing.T) {
 			SSHCertificate: filepath.Join(FixtureDir(), "id_rsa_test1-cert.pub"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -430,9 +422,7 @@ func TestRunGET(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 	time.Sleep(2 * time.Second)
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/healthz", port))
 	if err != nil {
@@ -467,9 +457,7 @@ func TestRunMetrics(t *testing.T) {
 			SSHUser: "test",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 	data := template.Data{
 		Alerts: []template.Alert{
 			template.Alert{
@@ -621,9 +609,7 @@ func TestRunInvalidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	go run(sc, promslog.NewNopLogger())
 	time.Sleep(2 * time.Second)
 	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer([]byte("foo")))
 	if err != nil {
