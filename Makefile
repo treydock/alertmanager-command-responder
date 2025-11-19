@@ -3,6 +3,7 @@ DOCKER_REPO	 ?= treydock
 export GOPATH ?= $(firstword $(subst :, ,$(shell go env GOPATH)))
 
 include Makefile.common
+GOTEST = $(GO) test -v
 
 DOCKER_IMAGE_NAME ?= alertmanager-command-responder
 

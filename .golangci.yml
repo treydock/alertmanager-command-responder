@@ -1,3 +1,4 @@
+---
 version: "2"
 linters:
   settings:
@@ -5,6 +6,7 @@ linters:
       exclude-functions:
         - (net/http.ResponseWriter).Write
         - (*encoding/json.Encoder).Encode
+        - (*github.com/prometheus/common/promslog.Level).Set
   exclusions:
     generated: lax
     presets:

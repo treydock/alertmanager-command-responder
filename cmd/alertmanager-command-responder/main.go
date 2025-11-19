@@ -168,6 +168,7 @@ func run(sc *config.SafeConfig, logger *slog.Logger) int {
 		WriteTimeout: 3 * time.Second,
 	}
 	go func() {
+		logger.Debug("Starting server", "listen", *listenAddr)
 		if err := srv.ListenAndServe(); err != nil {
 			logger.Error("Unable to start HTTP server", "err", err)
 			os.Exit(1)
