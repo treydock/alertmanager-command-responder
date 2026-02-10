@@ -14,18 +14,15 @@
 package config
 
 import (
-	"os"
 	"os/user"
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
+	"github.com/prometheus/common/promslog"
 )
 
 func TestReloadConfigDefaults(t *testing.T) {
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	sc := NewSafeConfig("testdata/config.yaml", logger)
+	sc := NewSafeConfig("testdata/config.yaml", promslog.NewNopLogger())
 	err := sc.ReadConfig()
 	if err != nil {
 		t.Errorf("Unexpected err: %s", err.Error())
@@ -45,7 +42,7 @@ func TestReloadConfigDefaults(t *testing.T) {
 	if sc.C.LocalCommandTimeout != duration2 {
 		t.Errorf("LocalCommandTimeout does not match default 10s")
 	}
-	sc = NewSafeConfig("testdata/config-empty.yaml", logger)
+	sc = NewSafeConfig("testdata/config-empty.yaml", promslog.NewNopLogger())
 	u, err := user.Current()
 	if err != nil {
 		t.Errorf("error getting current user: %s", err)
@@ -62,8 +59,6 @@ func TestReloadConfigDefaults(t *testing.T) {
 }
 
 func TestReloadConfigBadConfigs(t *testing.T) {
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
 	tests := []struct {
 		ConfigFile    string
 		ExpectedError string
@@ -90,7 +85,7 @@ func TestReloadConfigBadConfigs(t *testing.T) {
 		},
 	}
 	for i, test := range tests {
-		sc := NewSafeConfig(test.ConfigFile, logger)
+		sc := NewSafeConfig(test.ConfigFile, promslog.NewNopLogger())
 		err := sc.ReadConfig()
 		if err == nil {
 			t.Errorf("In case %v:\nExpected:\n%v\nGot:\nnil", i, test.ExpectedError)

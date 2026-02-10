@@ -15,11 +15,10 @@ package alert
 
 import (
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
@@ -42,7 +41,7 @@ const (
 
 type Alert struct {
 	template.Alert
-	logger   log.Logger
+	logger   *slog.Logger
 	Response AlertResponse `json:"response"`
 }
 
@@ -63,53 +62,56 @@ type AlertResponse struct {
 }
 
 func (a *Alert) Name() string {
-	if val, ok := a.Alert.Labels["alertname"]; ok {
+	if val, ok := a.Labels["alertname"]; ok {
 		return val
 	}
-	return a.Alert.Fingerprint
+	return a.Fingerprint
 }
 
-func (a *Alert) HandleAlert(c *config.Config, logger log.Logger) error {
+func (a *Alert) HandleAlert(c *config.Config, logger *slog.Logger) error {
 	var err error
-	a.logger = log.With(logger, "alert", a.Alert.Fingerprint, "alertname", a.Name())
-	level.Debug(a.logger).Log("msg", "Handling alert")
+	a.logger = logger.With("alert", a.Fingerprint, "alertname", a.Name())
+	a.logger.Debug("Handling alert")
 	r, err := a.buildResponse(c)
 	if err != nil {
-		level.Error(a.logger).Log("msg", "Error building alert response", "err", err)
+		a.logger.Error("Error building alert response", "err", err)
 		metrics.ErrorsTotal.Inc()
 		return err
 	}
-	if !utils.SliceContains(r.Status, a.Alert.Status) {
-		level.Debug(a.logger).Log("msg", "Alert status does not match alert", "status", a.Alert.Status, "expected", strings.Join(r.Status, ","))
+	if !utils.SliceContains(r.Status, a.Status) {
+		a.logger.Debug("Alert status does not match alert", "status", a.Status, "expected", strings.Join(r.Status, ","))
 		return nil
 	}
 	a.Response = r
 
+	if a.Response.LocalCommand == "" && a.Response.SSHCommand == "" {
+		a.logger.Debug("ignore alert without local or SSH command")
+	}
 	start := time.Now()
 	if a.Response.LocalCommand != "" {
-		localLogger := log.With(a.logger, "type", "local", "command", r.LocalCommand)
+		localLogger := a.logger.With("type", "local", "command", r.LocalCommand)
 		err = a.Response.runLocalCommand(localLogger)
 		if err != nil {
-			level.Error(localLogger).Log("msg", "Failed to run local command", "err", err)
+			localLogger.Error("Failed to run local command", "err", err)
 			metrics.CommandErrorsTotal.With(prometheus.Labels{"type": "local"}).Inc()
 		}
-		level.Info(localLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
+		localLogger.Info("Command completed", "duration", time.Since(start).Seconds())
 	}
 	if a.Response.SSHCommand != "" {
 		if a.Response.SSHHost == "" {
-			err := errors.New("Must provide SSH host using annotations")
-			level.Error(a.logger).Log("err", err)
+			err := errors.New("must provide SSH host using annotations")
+			a.logger.Error("Annotation validation failed", "err", err)
 			metrics.ErrorsTotal.Inc()
 			return err
 		}
-		sshLogger := log.With(a.logger, "type", "ssh", "ssh_user", r.SSHUser, "ssh_key", r.SSHKey,
+		sshLogger := a.logger.With("type", "ssh", "ssh_user", r.SSHUser, "ssh_key", r.SSHKey,
 			"ssh_cert", r.SSHCertificate, "ssh_host", r.SSHHost, "command", r.SSHCommand)
 		err = a.Response.runSSHCommand(sshLogger)
 		if err != nil {
-			level.Error(sshLogger).Log("msg", "Failed to run SSH command", "err", err)
+			sshLogger.Error("Failed to run SSH command", "err", err)
 			metrics.CommandErrorsTotal.With(prometheus.Labels{"type": "ssh"}).Inc()
 		}
-		level.Info(sshLogger).Log("msg", "Command completed", "duration", time.Since(start).Seconds())
+		sshLogger.Info("Command completed", "duration", time.Since(start).Seconds())
 	}
 	return err
 }
@@ -126,53 +128,53 @@ func (a *Alert) buildResponse(c *config.Config) (AlertResponse, error) {
 		SSHCommandTimeout:    c.SSHCommandTimeout,
 		LocalCommandTimeout:  c.LocalCommandTimeout,
 	}
-	if val, ok := a.Alert.Annotations[statusAnnotation]; ok {
+	if val, ok := a.Annotations[statusAnnotation]; ok {
 		r.Status = strings.Split(val, ",")
 	} else {
 		r.Status = []string{"firing"}
 	}
-	if val, ok := a.Alert.Annotations[sshUserAnnotation]; ok {
+	if val, ok := a.Annotations[sshUserAnnotation]; ok {
 		r.SSHUser = val
 	}
-	if val, ok := a.Alert.Annotations[sshKeyAnnotation]; ok {
+	if val, ok := a.Annotations[sshKeyAnnotation]; ok {
 		r.SSHKey = val
 	}
-	if val, ok := a.Alert.Annotations[sshCertAnnotation]; ok {
+	if val, ok := a.Annotations[sshCertAnnotation]; ok {
 		r.SSHCertificate = val
 	}
-	if val, ok := a.Alert.Annotations[sshHostAnnotation]; ok {
+	if val, ok := a.Annotations[sshHostAnnotation]; ok {
 		r.SSHHost = val
 	}
-	if val, ok := a.Alert.Annotations[sshCommandAnnotation]; ok {
+	if val, ok := a.Annotations[sshCommandAnnotation]; ok {
 		r.SSHCommand = val
 	}
-	if val, ok := a.Alert.Annotations[sshConnTimeout]; ok {
+	if val, ok := a.Annotations[sshConnTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
 		if err == nil {
 			r.SSHConnectionTimeout = timeout
 		} else {
-			level.Error(a.logger).Log("msg", "Unable to parse SSH connection timeout", "err", err, "timeout", val)
+			a.logger.Error("Unable to parse SSH connection timeout", "err", err, "timeout", val)
 			return r, err
 		}
 	}
-	if val, ok := a.Alert.Annotations[sshCommandTimeout]; ok {
+	if val, ok := a.Annotations[sshCommandTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
 		if err == nil {
 			r.SSHCommandTimeout = timeout
 		} else {
-			level.Error(a.logger).Log("msg", "Unable to parse SSH command timeout", "err", err, "timeout", val)
+			a.logger.Error("Unable to parse SSH command timeout", "err", err, "timeout", val)
 			return r, err
 		}
 	}
-	if val, ok := a.Alert.Annotations[localCommandAnnotation]; ok {
+	if val, ok := a.Annotations[localCommandAnnotation]; ok {
 		r.LocalCommand = val
 	}
-	if val, ok := a.Alert.Annotations[localCommandTimeout]; ok {
+	if val, ok := a.Annotations[localCommandTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
 		if err == nil {
 			r.LocalCommandTimeout = timeout
 		} else {
-			level.Error(a.logger).Log("msg", "Unable to parse local command timeout", "err", err, "timeout", val)
+			a.logger.Error("Unable to parse local command timeout", "err", err, "timeout", val)
 			return r, err
 		}
 	}

@@ -25,9 +25,9 @@ import (
 	"time"
 
 	kingpin "github.com/alecthomas/kingpin/v2"
-	"github.com/go-kit/log"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
@@ -57,7 +57,7 @@ func TestMain(m *testing.M) {
 
 func TestRun(t *testing.T) {
 	port := "10001"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -66,8 +66,6 @@ func TestRun(t *testing.T) {
 			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
 	tmp, err := os.CreateTemp("", "file")
 	if err != nil {
 		t.Errorf("Unable to create temp file: %s", err)
@@ -78,7 +76,10 @@ func TestRun(t *testing.T) {
 	if err := tmp.Close(); err != nil {
 		t.Errorf("Unable to close temp file: %s", err)
 	}
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
+	time.Sleep(2 * time.Second)
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -174,7 +175,7 @@ func TestRun(t *testing.T) {
 
 func TestRunStatus(t *testing.T) {
 	port := "10002"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -183,9 +184,10 @@ func TestRunStatus(t *testing.T) {
 			SSHKey:  filepath.Join(FixtureDir(), "id_rsa_test1"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
+	time.Sleep(2 * time.Second)
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -278,7 +280,7 @@ func TestRunStatus(t *testing.T) {
 
 func TestRunPassword(t *testing.T) {
 	port := "10003"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -287,9 +289,10 @@ func TestRunPassword(t *testing.T) {
 			SSHPassword: "test",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
+	time.Sleep(2 * time.Second)
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -343,7 +346,7 @@ func TestRunPassword(t *testing.T) {
 
 func TestRunCert(t *testing.T) {
 	port := "10004"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -353,9 +356,10 @@ func TestRunCert(t *testing.T) {
 			SSHCertificate: filepath.Join(FixtureDir(), "id_rsa_test1-cert.pub"),
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
+	time.Sleep(2 * time.Second)
 
 	data := template.Data{
 		Alerts: []template.Alert{
@@ -426,13 +430,13 @@ func TestRunCert(t *testing.T) {
 
 func TestRunGET(t *testing.T) {
 	port := "10005"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
 	time.Sleep(2 * time.Second)
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%s/healthz", port))
 	if err != nil {
@@ -459,7 +463,7 @@ func TestRunGET(t *testing.T) {
 
 func TestRunMetrics(t *testing.T) {
 	port := "10006"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{
@@ -467,9 +471,10 @@ func TestRunMetrics(t *testing.T) {
 			SSHUser: "test",
 		},
 	}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
+	time.Sleep(2 * time.Second)
 	data := template.Data{
 		Alerts: []template.Alert{
 			template.Alert{
@@ -617,13 +622,13 @@ func TestRunMetrics(t *testing.T) {
 
 func TestRunInvalidJSON(t *testing.T) {
 	port := "10007"
-	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=:%s", port)}); err != nil {
+	if _, err := kingpin.CommandLine.Parse([]string{fmt.Sprintf("--web.listen-address=localhost:%s", port)}); err != nil {
 		t.Fatal(err)
 	}
 	sc := &config.SafeConfig{}
-	w := log.NewSyncWriter(os.Stderr)
-	logger := log.NewLogfmtLogger(w)
-	go run(sc, logger)
+	level := promslog.NewLevel()
+	level.Set("debug")
+	go run(sc, promslog.New(&promslog.Config{Level: level}))
 	time.Sleep(2 * time.Second)
 	resp, err := http.Post(fmt.Sprintf("http://localhost:%s/alerts", port), "application/json", bytes.NewBuffer([]byte("foo")))
 	if err != nil {
