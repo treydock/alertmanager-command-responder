@@ -1,3 +1,13 @@
+## 1.0.0 / 2026-02-10
+
+### Changes
+
+* Major updates (#5)
+  * Major updates
+  * Update to Go 1.25
+  * Update all Go module dependencies
+  * Include SSH stdout and stderr in log message when the command fails
+
 ## 0.2.1 / 2023-06-29
 
 ### Bugfixes
