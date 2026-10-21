@@ -21,22 +21,27 @@ import (
 
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/model"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/metrics"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
 )
 
 const (
-	statusAnnotation       = "cr_status"
-	sshUserAnnotation      = "cr_ssh_user"
-	sshKeyAnnotation       = "cr_ssh_key"
-	sshCertAnnotation      = "cr_ssh_cert"
-	sshHostAnnotation      = "cr_ssh_host"
-	sshConnTimeout         = "cr_ssh_conn_timeout"
-	sshCommandAnnotation   = "cr_ssh_cmd"
-	sshCommandTimeout      = "cr_ssh_cmd_timeout"
-	localCommandAnnotation = "cr_local_cmd"
-	localCommandTimeout    = "cr_local_cmd_timeout"
+	statusAnnotation               = "cr_status"
+	sshUserAnnotation              = "cr_ssh_user"
+	sshKeyAnnotation               = "cr_ssh_key"
+	sshCertAnnotation              = "cr_ssh_cert"
+	sshHostAnnotation              = "cr_ssh_host"
+	sshConnTimeout                 = "cr_ssh_conn_timeout"
+	sshCommandAnnotation           = "cr_ssh_cmd"
+	sshCommandFiringAnnotation     = "cr_ssh_cmd_firing"
+	sshCommandResolvedAnnotation   = "cr_ssh_cmd_resolved"
+	sshCommandTimeout              = "cr_ssh_cmd_timeout"
+	localCommandAnnotation         = "cr_local_cmd"
+	localCommandFiringAnnotation   = "cr_local_cmd_firing"
+	localCommandResolvedAnnotation = "cr_local_cmd_resolved"
+	localCommandTimeout            = "cr_local_cmd_timeout"
 )
 
 type Alert struct {
@@ -131,7 +136,7 @@ func (a *Alert) buildResponse(c *config.Config) (AlertResponse, error) {
 	if val, ok := a.Annotations[statusAnnotation]; ok {
 		r.Status = strings.Split(val, ",")
 	} else {
-		r.Status = []string{"firing"}
+		r.Status = []string{string(model.AlertFiring)}
 	}
 	if val, ok := a.Annotations[sshUserAnnotation]; ok {
 		r.SSHUser = val
@@ -145,8 +150,26 @@ func (a *Alert) buildResponse(c *config.Config) (AlertResponse, error) {
 	if val, ok := a.Annotations[sshHostAnnotation]; ok {
 		r.SSHHost = val
 	}
-	if val, ok := a.Annotations[sshCommandAnnotation]; ok {
-		r.SSHCommand = val
+	if a.Status == string(model.AlertFiring) {
+		if val, ok := a.Annotations[sshCommandFiringAnnotation]; ok {
+			r.SSHCommand = val
+		}
+		if val, ok := a.Annotations[localCommandFiringAnnotation]; ok {
+			r.LocalCommand = val
+		}
+	}
+	if a.Status == string(model.AlertResolved) {
+		if val, ok := a.Annotations[sshCommandResolvedAnnotation]; ok {
+			r.SSHCommand = val
+		}
+		if val, ok := a.Annotations[localCommandResolvedAnnotation]; ok {
+			r.LocalCommand = val
+		}
+	}
+	if r.SSHCommand == "" {
+		if val, ok := a.Annotations[sshCommandAnnotation]; ok {
+			r.SSHCommand = val
+		}
 	}
 	if val, ok := a.Annotations[sshConnTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
@@ -166,8 +189,10 @@ func (a *Alert) buildResponse(c *config.Config) (AlertResponse, error) {
 			return r, err
 		}
 	}
-	if val, ok := a.Annotations[localCommandAnnotation]; ok {
-		r.LocalCommand = val
+	if r.LocalCommand == "" {
+		if val, ok := a.Annotations[localCommandAnnotation]; ok {
+			r.LocalCommand = val
+		}
 	}
 	if val, ok := a.Annotations[localCommandTimeout]; ok {
 		timeout, err := time.ParseDuration(val)
