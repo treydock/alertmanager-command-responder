@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
 	"github.com/treydock/alertmanager-command-responder/internal/config"
 	"github.com/treydock/alertmanager-command-responder/internal/utils"
@@ -56,7 +57,7 @@ func TestBuildResponse(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
-	if len(r.Status) != 1 && r.Status[0] != "firing" {
+	if len(r.Status) != 1 && r.Status[0] != string(model.AlertFiring) {
 		t.Errorf("Unexpected value for Status, got %+v", r.Status)
 	}
 	if r.SSHUser != "test" {
@@ -81,7 +82,7 @@ func TestBuildResponse(t *testing.T) {
 	if err != nil {
 		t.Errorf("Unexpected error: %s", err)
 	}
-	if len(r.Status) != 2 && !utils.SliceContains(r.Status, "firing") && !utils.SliceContains(r.Status, "resolved") {
+	if len(r.Status) != 2 && !utils.SliceContains(r.Status, string(model.AlertFiring)) && !utils.SliceContains(r.Status, string(model.AlertResolved)) {
 		t.Errorf("Unexpected value for Status, got %+v", r.Status)
 	}
 	if r.SSHUser != "foo" {
@@ -147,5 +148,235 @@ func TestBuildResponseErrors(t *testing.T) {
 	_, err = alert.buildResponse(sc.C)
 	if err == nil {
 		t.Errorf("Expected an error")
+	}
+}
+
+func TestBuildResponseFiringAnnotations(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test with firing status - should use _firing annotations
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd_firing":   "firing_ssh_cmd",
+				"cr_local_cmd_firing": "firing_local_cmd",
+				"cr_ssh_cmd":          "generic_ssh_cmd",
+				"cr_local_cmd":        "generic_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertFiring),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "firing_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'firing_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "firing_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'firing_local_cmd', got %s", r.LocalCommand)
+	}
+}
+
+func TestBuildResponseResolvedAnnotations(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test with resolved status - should use _resolved annotations
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd_resolved":   "resolved_ssh_cmd",
+				"cr_local_cmd_resolved": "resolved_local_cmd",
+				"cr_ssh_cmd":            "generic_ssh_cmd",
+				"cr_local_cmd":          "generic_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertResolved),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "resolved_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'resolved_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "resolved_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'resolved_local_cmd', got %s", r.LocalCommand)
+	}
+}
+
+func TestBuildResponseFallbackAnnotations(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test with firing status but no _firing annotation - should fall back to generic
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd":   "generic_ssh_cmd",
+				"cr_local_cmd": "generic_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertFiring),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "generic_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'generic_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "generic_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'generic_local_cmd', got %s", r.LocalCommand)
+	}
+
+	// Test with resolved status but no _resolved annotation - should fall back to generic
+	alert.Status = string(model.AlertResolved)
+	r, err = alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "generic_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'generic_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "generic_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'generic_local_cmd', got %s", r.LocalCommand)
+	}
+}
+
+func TestBuildResponseFiringOverridesGeneric(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test that _firing annotation takes precedence over generic when both present
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd_firing":   "firing_ssh_cmd",
+				"cr_ssh_cmd":          "generic_ssh_cmd",
+				"cr_local_cmd_firing": "firing_local_cmd",
+				"cr_local_cmd":        "generic_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertFiring),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	// firing annotations should take precedence
+	if r.SSHCommand != "firing_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'firing_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "firing_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'firing_local_cmd', got %s", r.LocalCommand)
+	}
+}
+
+func TestBuildResponseResolvedOverridesGeneric(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test that _resolved annotation takes precedence over generic when both present
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd_resolved":   "resolved_ssh_cmd",
+				"cr_ssh_cmd":            "generic_ssh_cmd",
+				"cr_local_cmd_resolved": "resolved_local_cmd",
+				"cr_local_cmd":          "generic_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertResolved),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	// resolved annotations should take precedence
+	if r.SSHCommand != "resolved_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'resolved_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "resolved_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'resolved_local_cmd', got %s", r.LocalCommand)
+	}
+}
+
+func TestBuildResponseMixedStatusAnnotations(t *testing.T) {
+	sc := &config.SafeConfig{
+		C: &config.Config{
+			SSHUser: "test",
+			SSHKey:  "ssh_key",
+		},
+	}
+	// Test with both firing and resolved annotations - status determines which is used
+	alert := &Alert{
+		Alert: template.Alert{
+			Labels: map[string]string{"alertname": "foo"},
+			Annotations: map[string]string{
+				"cr_ssh_cmd_firing":     "firing_ssh_cmd",
+				"cr_ssh_cmd_resolved":   "resolved_ssh_cmd",
+				"cr_local_cmd_firing":   "firing_local_cmd",
+				"cr_local_cmd_resolved": "resolved_local_cmd",
+			},
+			Fingerprint: "bar",
+			Status:      string(model.AlertFiring),
+		},
+		logger: promslog.NewNopLogger(),
+	}
+	r, err := alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "firing_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'firing_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "firing_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'firing_local_cmd', got %s", r.LocalCommand)
+	}
+
+	// Change to resolved status
+	alert.Status = string(model.AlertResolved)
+	r, err = alert.buildResponse(sc.C)
+	if err != nil {
+		t.Errorf("Unexpected error: %s", err)
+	}
+	if r.SSHCommand != "resolved_ssh_cmd" {
+		t.Errorf("Expected SSHCommand to be 'resolved_ssh_cmd', got %s", r.SSHCommand)
+	}
+	if r.LocalCommand != "resolved_local_cmd" {
+		t.Errorf("Expected LocalCommand to be 'resolved_local_cmd', got %s", r.LocalCommand)
 	}
 }

@@ -18,15 +18,19 @@ The following are the annotations a Prometheus alert can configure to modify the
 
 Annotation | Description | Default
 -----|-------------|--------
-`cr_status` | The Alert status to act on, `firing` or `resolved` | `firing`
+`cr_status` | The Alert status to act on, `firing`, `resolved`. Can be `firing,resolved` | `firing`
 `cr_ssh_user` | User for remote command execution | `ssh_user` value in configuration file or user running this service
 `cr_ssh_key` | SSH private key for authentication for SSH command | `ssh_key` value in configuration file
 `cr_ssh_cert` | SSH certificate for cert based authentication | `ssh_certificate` value in configuration file
 `cr_ssh_host` | SSH remote host to run command | **required**
 `cr_ssh_conn_timeout` | SSH connection timeout duration, eg: `5s` | `ssh_connection_timeout` value in configuration file or `5s`
 `cr_ssh_cmd` | SSH command to execute on remote host | **optional**
+`cr_ssh_cmd_firing` | SSH command to execute when firing | **cr_ssh_cmd**
+`cr_ssh_cmd_resolved` | SSH command to execute when resolved | **cr_ssh_cmd**
 `cr_ssh_cmd_timeout` | Duration for SSH command timeout, eg: `5s` | `ssh_command_timeout` value in configuration file or `10s`
 `cr_local_cmd` | Local command to execute | **optional**
+`cr_local_cmd_firing` | Local command to execute when firing | **cr_local_cmd**
+`cr_local_cmd_resolved` | Local command to execute when resolved | **cr_local_cmd**
 `cr_local_cmd_timeout` | Local command timeout duration, eg: `5s` | `local_command_timeout` value in configuration file or `10s`
 
 ## Configuration
